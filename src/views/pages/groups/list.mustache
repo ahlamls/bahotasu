@@ -1,0 +1,51 @@
+<section class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+  <div>
+    <p class="text-secondary mb-1 small text-uppercase">Administration</p>
+    <h1 class="h4 fw-semibold mb-0">Group management</h1>
+  </div>
+  <a class="btn btn-primary" href="/groups/new">Create group</a>
+</section>
+
+{{#notice}}
+<div class="alert alert-success" role="alert">
+  {{notice}}
+</div>
+{{/notice}}
+{{#error}}
+<div class="alert alert-danger" role="alert">
+  {{error}}
+</div>
+{{/error}}
+
+<div class="table-responsive card-lite">
+  <table class="table align-middle mb-0">
+    <thead>
+      <tr>
+        <th scope="col">Name</th>
+        <th scope="col">Slug</th>
+        <th scope="col">Description</th>
+        <th scope="col" class="text-end">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#groups}}
+      <tr>
+        <td class="fw-semibold">{{name}}</td>
+        <td><code>{{slug}}</code></td>
+        <td>{{description}}</td>
+        <td class="text-end">
+          <a class="btn btn-outline-secondary btn-sm" href="/groups/{{id}}/edit">Edit</a>
+          <form method="post" action="/groups/{{id}}/delete" class="d-inline" onsubmit="return confirm('Delete this group? Logs tied to it will become ungrouped.');">
+            <button class="btn btn-outline-danger btn-sm" type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {{/groups}}
+      {{^groups}}
+      <tr>
+        <td colspan="4" class="text-center text-secondary py-4">No groups available yet.</td>
+      </tr>
+      {{/groups}}
+    </tbody>
+  </table>
+</div>

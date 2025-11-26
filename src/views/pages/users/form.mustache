@@ -1,0 +1,113 @@
+<section class="mb-4">
+  <p class="text-secondary small text-uppercase mb-1">Administration</p>
+  <h1 class="h4 fw-semibold">{{title}}</h1>
+</section>
+
+{{#error}}
+<div class="alert alert-danger" role="alert">
+  {{error}}
+</div>
+{{/error}}
+
+<div class="card-lite p-4">
+  <form method="post" action="{{formAction}}" class="d-grid gap-3" autocomplete="off">
+    <div class="row g-3">
+      <div class="col-12 col-md-6">
+        <label class="form-label small text-uppercase text-secondary" for="name">Full name</label>
+        <input type="text" class="form-control" id="name" name="name" value="{{nameValue}}" required />
+      </div>
+      <div class="col-12 col-md-3">
+        <label class="form-label small text-uppercase text-secondary" for="username">Username</label>
+        <input
+          type="text"
+          class="form-control"
+          id="username"
+          name="username"
+          value="{{usernameValue}}"
+          {{#credentialsReadOnly}}readonly disabled{{/credentialsReadOnly}}
+          required
+        />
+      </div>
+      <div class="col-12 col-md-3">
+        <label class="form-label small text-uppercase text-secondary" for="email">Email</label>
+        <input
+          type="email"
+          class="form-control"
+          id="email"
+          name="email"
+          value="{{emailValue}}"
+          {{#credentialsReadOnly}}readonly disabled{{/credentialsReadOnly}}
+          required
+        />
+      </div>
+    </div>
+
+    <div>
+      <label class="form-label small text-uppercase text-secondary" for="password">Password{{#passwordOptional}} (leave blank to keep current){{/passwordOptional}}</label>
+      <div class="input-group">
+        <input
+          type="password"
+          class="form-control"
+          id="password"
+          name="password"
+          {{^passwordOptional}}required{{/passwordOptional}}
+          minlength="6"
+        />
+        <button class="btn btn-outline-secondary" type="button" id="generatePassword">Generate</button>
+        <button class="btn btn-outline-secondary" type="button" id="copyPassword">Copy</button>
+      </div>
+      <div class="form-text">Minimum 6 characters.</div>
+    </div>
+    <div>
+      <label class="form-label small text-uppercase text-secondary" for="confirmPassword">Confirm password</label>
+      <input
+        type="password"
+        class="form-control"
+        id="confirmPassword"
+        name="confirmPassword"
+        {{^passwordOptional}}required{{/passwordOptional}}
+        minlength="6"
+      />
+    </div>
+
+    <div class="d-flex justify-content-between flex-wrap gap-2">
+      <a href="/users" class="btn btn-outline-secondary">Cancel</a>
+      <button type="submit" class="btn btn-primary">{{submitLabel}}</button>
+    </div>
+  </form>
+</div>
+
+<script>
+  (() => {
+    const pwd = document.getElementById("password");
+    const confirmPwd = document.getElementById("confirmPassword");
+    const generateBtn = document.getElementById("generatePassword");
+    const copyBtn = document.getElementById("copyPassword");
+
+    const randomPassword = () => {
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz0123456789!@#$%^&*";
+      let out = "";
+      for (let i = 0; i < 14; i++) {
+        out += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return out;
+    };
+
+    generateBtn?.addEventListener("click", () => {
+      const value = randomPassword();
+      if (pwd) pwd.value = value;
+      if (confirmPwd) confirmPwd.value = value;
+    });
+
+    copyBtn?.addEventListener("click", async () => {
+      if (!pwd || !pwd.value) return;
+      try {
+        await navigator.clipboard.writeText(pwd.value);
+        copyBtn.textContent = "Copied!";
+        setTimeout(() => (copyBtn.textContent = "Copy"), 1500);
+      } catch (err) {
+        console.error("Copy failed", err);
+      }
+    });
+  })();
+</script>

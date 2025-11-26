@@ -1,0 +1,69 @@
+<section class="mb-4">
+  <p class="text-secondary small text-uppercase mb-1">Administration</p>
+  <h1 class="h4 fw-semibold">{{title}}</h1>
+</section>
+
+{{#error}}
+<div class="alert alert-danger" role="alert">
+  {{error}}
+</div>
+{{/error}}
+
+<div class="card-lite p-4">
+  <form method="post" action="{{formAction}}" class="d-grid gap-3">
+    <div class="row g-3">
+      <div class="col-12 col-md-6">
+        <label class="form-label small text-uppercase text-secondary" for="name">Name</label>
+        <input type="text" id="name" name="name" class="form-control" value="{{nameValue}}" required />
+      </div>
+      <div class="col-12 col-md-6">
+        <label class="form-label small text-uppercase text-secondary" for="groupId">Group access</label>
+        <select id="groupId" name="groupId" class="form-select">
+          <option value="" {{#noGroupSelected}}selected{{/noGroupSelected}}>Everyone</option>
+          {{#groups}}
+          <option value="{{id}}" {{#selected}}selected{{/selected}}>{{name}}</option>
+          {{/groups}}
+        </select>
+        <div class="form-text">Choose a group or leave empty for all users.</div>
+      </div>
+    </div>
+
+    <div>
+      <label class="form-label small text-uppercase text-secondary" for="description">Description</label>
+      <textarea id="description" name="description" rows="3" class="form-control">{{descriptionValue}}</textarea>
+    </div>
+
+    <div>
+      <label class="form-label small text-uppercase text-secondary" for="filePath">Log file path</label>
+      <input type="text" id="filePath" name="filePath" class="form-control" value="{{filePathValue}}" required />
+    </div>
+
+    <div class="row g-3">
+      <div class="col-12 col-md-4">
+        <label class="form-label small text-uppercase text-secondary" for="tailLines">Tail lines</label>
+        <input
+          type="number"
+          min="10"
+          max="10000"
+          id="tailLines"
+          name="tailLines"
+          class="form-control"
+          value="{{tailLinesValue}}"
+          required
+        />
+        <div class="form-text">How many lines to show (default 1000).</div>
+      </div>
+      <div class="col-12 col-md-4 d-flex align-items-end">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="allowClear" name="allowClear" value="1" {{#allowClear}}checked{{/allowClear}} />
+          <label class="form-check-label" for="allowClear">Allow truncate/clear</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="d-flex justify-content-between flex-wrap gap-2">
+      <a href="/logs" class="btn btn-outline-secondary">Cancel</a>
+      <button type="submit" class="btn btn-primary">{{submitLabel}}</button>
+    </div>
+  </form>
+</div>

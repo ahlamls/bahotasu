@@ -1,0 +1,24 @@
+<section class="text-center mb-5">
+  <p class="text-uppercase small text-secondary mb-2">Log monitoring utility</p>
+  <h1 class="fw-semibold mb-3">{{heroTitle}}</h1>
+  <p class="text-secondary mx-auto" style="max-width: 520px;">
+    {{heroSubtitle}}
+  </p>
+  <div class="mt-4">
+    <a class="btn btn-primary px-4" href="/login">Sign in</a>
+    <a class="btn btn-outline-secondary px-4 ms-2" href="/about">Learn more</a>
+  </div>
+</section>
+
+<section class="row g-4">
+  {{#featureCards}}
+  <div class="col-12 col-md-4">
+    <div class="card-lite h-100 p-3">
+      <h2 class="h6 mb-2">{{title}}</h2>
+      <p class="text-secondary small mb-0">
+        {{body}}
+      </p>
+    </div>
+  </div>
+  {{/featureCards}}
+</section>

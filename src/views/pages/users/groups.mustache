@@ -1,0 +1,59 @@
+<section class="mb-4">
+  <p class="text-secondary small text-uppercase mb-1">User groups</p>
+  <h1 class="h4 fw-semibold">{{userName}}</h1>
+  <p class="text-secondary mb-0">{{userEmail}}</p>
+</section>
+
+{{#notice}}
+<div class="alert alert-success" role="alert">
+  {{notice}}
+</div>
+{{/notice}}
+{{#error}}
+<div class="alert alert-danger" role="alert">
+  {{error}}
+</div>
+{{/error}}
+
+<div class="card-lite p-4">
+{{#hasGroups}}
+  <form method="post" action="{{formAction}}">
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead>
+          <tr>
+            <th scope="col">Group</th>
+            <th scope="col" class="text-end">Assigned</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{#groups}}
+          <tr>
+            <td>
+              <div class="fw-semibold">{{name}}</div>
+              <div class="text-secondary small">{{description}}</div>
+            </td>
+            <td class="text-end">
+              <input
+                class="form-check-input me-2"
+                type="checkbox"
+                name="groupIds"
+                value="{{id}}"
+                {{#assigned}}checked{{/assigned}}
+              />
+            </td>
+          </tr>
+          {{/groups}}
+        </tbody>
+      </table>
+    </div>
+    <div class="d-flex justify-content-between flex-wrap gap-2 mt-3">
+      <a href="/users" class="btn btn-outline-secondary">Back</a>
+      <button type="submit" class="btn btn-primary">Save groups</button>
+    </div>
+  </form>
+  {{/hasGroups}}
+  {{^hasGroups}}
+  <p class="text-secondary mb-0">No groups available. Create a group first.</p>
+  {{/hasGroups}}
+</div>

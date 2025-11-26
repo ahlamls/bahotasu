@@ -1,0 +1,66 @@
+<section class="mb-4">
+  <p class="text-secondary mb-1">Welcome back,</p>
+  <h1 class="h4 fw-semibold">{{userName}}</h1>
+</section>
+
+{{#hasLogs}}
+  {{#dashboardGroups}}
+  <section class="mb-4">
+    <h2 class="h5 fw-semibold mb-1">{{groupName}}</h2>
+    {{#groupDescription}}
+    <p class="text-secondary mb-3">{{groupDescription}}</p>
+    {{/groupDescription}}
+    <div class="row g-3">
+      {{#logs}}
+      <div class="col-12">
+        <div class="card-lite p-3 log-card" data-log-url="{{logUrl}}" role="link" tabindex="0">
+          <div class="row gy-2 align-items-center">
+            <div class="col-12 col-md-5">
+              <div class="fw-semibold">{{name}}</div>
+              {{#description}}
+              <div class="text-secondary small">{{description}}</div>
+              {{/description}}
+            </div>
+            <div class="col-12 col-md-5 text-secondary small">
+              <code>{{filePath}}</code>
+            </div>
+            <div class="col-12 col-md-2 d-none d-md-flex justify-content-end">
+              <a style="float:right !important" class="btn btn-primary btn-sm" href="{{logUrl}}">View log</a>
+            </div>
+          </div>
+        </div>
+      </div>
+      {{/logs}}
+    </div>
+  </section>
+  {{/dashboardGroups}}
+{{/hasLogs}}
+
+{{^hasLogs}}
+  <section class="card-lite p-4 text-center text-secondary">
+    <p class="mb-0">No logs available for your account yet.</p>
+  </section>
+{{/hasLogs}}
+
+<script>
+  const mobileMatcher = window.matchMedia("(max-width: 767px)");
+  const enableCardNavigation = () => {
+    document.querySelectorAll(".log-card").forEach((card) => {
+      card.dataset.mobileHandled = "true";
+      const handler = () => {
+        if (!mobileMatcher.matches) return;
+        const url = card.getAttribute("data-log-url");
+        if (url) window.location.href = url;
+      };
+      card.addEventListener("click", handler);
+      card.addEventListener("keypress", (event) => {
+        if (!mobileMatcher.matches) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          handler();
+        }
+      });
+    });
+  };
+  enableCardNavigation();
+</script>

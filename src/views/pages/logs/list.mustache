@@ -1,0 +1,60 @@
+<section class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+  <div>
+    <p class="text-secondary mb-1 small text-uppercase">Administration</p>
+    <h1 class="h4 fw-semibold mb-0">Logs management</h1>
+  </div>
+  <a class="btn btn-primary" href="/logs/new">Register log</a>
+</section>
+
+{{#notice}}
+<div class="alert alert-success" role="alert">
+  {{notice}}
+</div>
+{{/notice}}
+{{#error}}
+<div class="alert alert-danger" role="alert">
+  {{error}}
+</div>
+{{/error}}
+
+<div class="table-responsive card-lite">
+  <table class="table align-middle mb-0">
+    <thead>
+      <tr>
+        <th scope="col">Name</th>
+        <th scope="col">Group</th>
+        <th scope="col">Tail lines</th>
+        <th scope="col">Allow truncate</th>
+        <th scope="col">File path</th>
+        <th scope="col" class="text-end">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#logs}}
+      <tr>
+        <td>
+          <div class="fw-semibold">{{name}}</div>
+          <div class="text-secondary small">{{description}}</div>
+        </td>
+        <td>{{groupLabel}}</td>
+        <td>{{tailLines}}</td>
+        <td>{{#allowClear}}Yes{{/allowClear}}{{^allowClear}}No{{/allowClear}}</td>
+        <td><code>{{filePath}}</code></td>
+        <td class="text-end">
+          <div class="d-flex flex-wrap gap-2 justify-content-end">
+            <a class="btn btn-outline-secondary btn-sm" href="/logs/{{id}}/edit">Edit</a>
+            <form method="post" action="/logs/{{id}}/delete" onsubmit="return confirm('Delete this log?');">
+              <button class="btn btn-outline-danger btn-sm" type="submit">Delete</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {{/logs}}
+      {{^logs}}
+      <tr>
+        <td colspan="6" class="text-center text-secondary py-4">No logs registered yet.</td>
+      </tr>
+      {{/logs}}
+    </tbody>
+  </table>
+</div>

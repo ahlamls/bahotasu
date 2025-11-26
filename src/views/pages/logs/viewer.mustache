@@ -1,0 +1,161 @@
+<section class="mb-4">
+  <p class="text-secondary small text-uppercase mb-1">{{groupLabel}}</p>
+  <h1 class="h4 fw-semibold mb-1">{{name}}</h1>
+  {{#description}}
+  <p class="text-secondary mb-1">{{description}}</p>
+  {{/description}}
+  <p class="text-secondary small mb-0">File: <code>{{filePath}}</code> · Tail {{tailLines}} lines</p>
+</section>
+
+<div class="card-lite p-3 mb-3">
+  <div class="d-flex flex-wrap gap-2 align-items-center">
+    <button id="refreshBtn" class="btn btn-primary btn-sm">Refresh</button>
+    <div class="form-check form-switch">
+      <input class="form-check-input" type="checkbox" role="switch" id="autoRefresh">
+      <label class="form-check-label" for="autoRefresh">Auto refresh</label>
+    </div>
+    <div class="form-check form-switch">
+      <input class="form-check-input" type="checkbox" role="switch" id="autoScroll" checked>
+      <label class="form-check-label" for="autoScroll">Auto scroll</label>
+    </div>
+    {{#allowClear}}
+    <button id="clearBtn" class="btn btn-outline-danger btn-sm ms-auto">Clear log</button>
+    {{/allowClear}}
+  </div>
+</div>
+
+<textarea id="logOutput" class="form-control" rows="22" readonly>Loading...</textarea>
+<div class="text-secondary small mt-2 d-flex justify-content-between flex-wrap gap-2">
+  <span id="statusLine">Idle</span>
+  <span>Auto refresh interval: 3s</span>
+</div>
+
+<script>
+  (() => {
+    const logId = {{logId}};
+    const endpoints = {
+      content: `/logs/${logId}/content`,
+      clear: `/logs/${logId}/clear`,
+    };
+    const STORAGE_KEYS = {
+      autoRefresh: "bahotasu_auto_refresh",
+      autoScroll: "bahotasu_auto_scroll",
+    };
+    const readBool = (key, fallback) => {
+      try {
+        const raw = localStorage.getItem(key);
+        if (raw === null) return fallback;
+        return raw === "1";
+      } catch (_) {
+        return fallback;
+      }
+    };
+    const writeBool = (key, value) => {
+      try {
+        localStorage.setItem(key, value ? "1" : "0");
+      } catch (_) {
+        // ignore
+      }
+    };
+
+    const textarea = document.getElementById("logOutput");
+    const refreshBtn = document.getElementById("refreshBtn");
+    const clearBtn = document.getElementById("clearBtn");
+    const autoRefresh = document.getElementById("autoRefresh");
+    const autoScroll = document.getElementById("autoScroll");
+    const statusLine = document.getElementById("statusLine");
+    const INTERVAL = 3000;
+    let timer = null;
+
+    const setStatus = (text) => {
+      statusLine.textContent = text;
+    };
+
+    const scrollToBottom = () => {
+      if (autoScroll.checked) {
+        textarea.scrollTop = textarea.scrollHeight;
+      }
+    };
+
+    const fetchLogs = async () => {
+      setStatus("Refreshing...");
+      try {
+        const response = await fetch(endpoints.content, { headers: { "Accept": "text/plain" } });
+        const body = await response.text();
+        if (response.ok) {
+          textarea.value = body || "(no output)";
+          scrollToBottom();
+          setStatus(`Updated at ${new Date().toLocaleTimeString()}`);
+        } else {
+          textarea.value = body || "Failed to load log content.";
+          setStatus("Error");
+        }
+      } catch (err) {
+        textarea.value = `Failed to load log content.\n${err}`;
+        setStatus("Error");
+      }
+    };
+
+    const startAuto = () => {
+      stopAuto();
+      if (autoRefresh.checked) {
+        fetchLogs();
+        timer = setInterval(fetchLogs, INTERVAL);
+      }
+    };
+
+    const stopAuto = () => {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+    };
+
+    refreshBtn.addEventListener("click", fetchLogs);
+
+    autoRefresh.addEventListener("change", () => {
+      writeBool(STORAGE_KEYS.autoRefresh, autoRefresh.checked);
+      if (autoRefresh.checked) {
+        startAuto();
+      } else {
+        stopAuto();
+        setStatus("Auto refresh disabled.");
+      }
+    });
+
+    autoScroll.addEventListener("change", () => {
+      writeBool(STORAGE_KEYS.autoScroll, autoScroll.checked);
+    });
+
+    {{#allowClear}}
+    clearBtn?.addEventListener("click", async () => {
+      if (!confirm("Clear this log file?")) return;
+      setStatus("Clearing...");
+      try {
+        const response = await fetch(endpoints.clear, { method: "POST" });
+        const body = await response.text();
+        if (response.ok) {
+          textarea.value = "(log cleared)";
+          scrollToBottom();
+          setStatus("Log cleared.");
+        } else {
+          textarea.value = body || "Failed to clear log.";
+          setStatus("Error");
+        }
+      } catch (err) {
+        textarea.value = `Failed to clear log.\n${err}`;
+        setStatus("Error");
+      }
+    });
+    {{/allowClear}}
+
+    autoRefresh.checked = readBool(STORAGE_KEYS.autoRefresh, false);
+    autoScroll.checked = readBool(STORAGE_KEYS.autoScroll, true);
+
+    fetchLogs().then(() => {
+      if (autoRefresh.checked) {
+        startAuto();
+      }
+    });
+  })();
+</script>

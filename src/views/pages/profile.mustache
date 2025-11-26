@@ -1,0 +1,86 @@
+<section class="mb-4">
+  <p class="text-secondary mb-1">Account</p>
+  <h1 class="h4 fw-semibold">Profile settings</h1>
+</section>
+
+<div class="row g-4">
+  <div class="col-12 col-lg-6">
+    <div class="card-lite p-4 h-100">
+      <h2 class="h6 text-uppercase text-secondary mb-3">Account info</h2>
+      <dl class="mb-4">
+        <dt class="small text-secondary text-uppercase mb-1">Username</dt>
+        <dd class="fw-semibold mb-3">{{username}}</dd>
+        <dt class="small text-secondary text-uppercase mb-1">Email</dt>
+        <dd class="fw-semibold mb-3">{{email}}</dd>
+        <dt class="small text-secondary text-uppercase mb-1">Role</dt>
+        <dd class="fw-semibold text-capitalize mb-4">{{role}}</dd>
+      </dl>
+      {{#hasGroups}}
+      <div class="mb-4">
+        <p class="small text-secondary text-uppercase mb-2">Groups</p>
+        <ul class="list-unstyled mb-0">
+          {{#groups}}
+          <li class="mb-1">
+            <span class="fw-semibold">{{name}}</span>
+            <span class="text-secondary small">({{slug}})</span>
+          </li>
+          {{/groups}}
+        </ul>
+      </div>
+      {{/hasGroups}}
+      <hr />
+      <h3 class="h6 text-uppercase text-secondary mb-3">Update name</h3>
+      {{#nameSuccess}}
+      <div class="alert alert-success small" role="alert">
+        {{nameSuccess}}
+      </div>
+      {{/nameSuccess}}
+      {{#nameError}}
+      <div class="alert alert-danger small" role="alert">
+        {{nameError}}
+      </div>
+      {{/nameError}}
+      <form method="post" action="/profile/name" class="d-grid gap-3">
+        <div>
+          <label for="displayName" class="form-label small text-uppercase text-secondary">Full name</label>
+          <input
+            type="text"
+            id="displayName"
+            name="displayName"
+            class="form-control"
+            value="{{nameValue}}"
+            required
+          />
+        </div>
+        <button type="submit" class="btn btn-primary">Save name</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-6">
+    <div class="card-lite p-4 h-100">
+      <h2 class="h6 text-uppercase text-secondary mb-3">Change password</h2>
+      <p class="text-secondary small mb-3">Enter your current password and choose a new one.</p>
+      {{#passwordError}}
+      <div class="alert alert-danger small" role="alert">
+        {{passwordError}}
+      </div>
+      {{/passwordError}}
+      <form method="post" action="/profile/password" class="d-grid gap-3">
+        <div>
+          <label for="currentPassword" class="form-label small text-uppercase text-secondary">Current password</label>
+          <input type="password" id="currentPassword" name="currentPassword" class="form-control" required />
+        </div>
+        <div>
+          <label for="newPassword" class="form-label small text-uppercase text-secondary">New password</label>
+          <input type="password" id="newPassword" name="newPassword" class="form-control" required minlength="6" />
+        </div>
+        <div>
+          <label for="confirmPassword" class="form-label small text-uppercase text-secondary">Confirm new password</label>
+          <input type="password" id="confirmPassword" name="confirmPassword" class="form-control" required minlength="6" />
+        </div>
+        <button type="submit" class="btn btn-outline-primary">Update password</button>
+      </form>
+    </div>
+  </div>
+</div>

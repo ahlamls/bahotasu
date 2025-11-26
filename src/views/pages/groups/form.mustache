@@ -1,0 +1,49 @@
+<section class="mb-4">
+  <p class="text-secondary small text-uppercase mb-1">Administration</p>
+  <h1 class="h4 fw-semibold">{{title}}</h1>
+</section>
+
+{{#error}}
+<div class="alert alert-danger" role="alert">
+  {{error}}
+</div>
+{{/error}}
+
+<div class="card-lite p-4">
+  <form method="post" action="{{formAction}}" class="d-grid gap-3">
+    <div>
+      <label for="name" class="form-label small text-uppercase text-secondary">Group name</label>
+      <input type="text" class="form-control" id="name" name="name" value="{{nameValue}}" required maxlength="120" />
+    </div>
+    {{#showSlugField}}
+    <div>
+      <label for="slug" class="form-label small text-uppercase text-secondary">Slug</label>
+      <input
+        type="text"
+        class="form-control"
+        id="slug"
+        name="slug"
+        value="{{slugValue}}"
+        required
+        pattern="[A-Za-z0-9_]+"
+      />
+      <div class="form-text">Use alphanumeric characters or underscore. Example: awesome_project.</div>
+    </div>
+    {{/showSlugField}}
+    {{^showSlugField}}
+    <div>
+      <label class="form-label small text-uppercase text-secondary">Slug</label>
+      <p class="mb-0"><code>{{slugValue}}</code></p>
+      <div class="form-text">Slug cannot be changed after creation.</div>
+    </div>
+    {{/showSlugField}}
+    <div>
+      <label for="description" class="form-label small text-uppercase text-secondary">Description</label>
+      <textarea class="form-control" id="description" name="description" rows="3">{{descriptionValue}}</textarea>
+    </div>
+    <div class="d-flex justify-content-between flex-wrap gap-2">
+      <a class="btn btn-outline-secondary" href="/groups">Cancel</a>
+      <button type="submit" class="btn btn-primary">{{submitLabel}}</button>
+    </div>
+  </form>
+</div>
