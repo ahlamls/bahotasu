@@ -36,6 +36,7 @@
         <td class="text-end">
           <a class="btn btn-outline-secondary btn-sm" href="/groups/{{id}}/edit">Edit</a>
           <form method="post" action="/groups/{{id}}/delete" class="d-inline" onsubmit="return confirm('Delete this group? Logs tied to it will become ungrouped.');">
+            <input type="hidden" name="_csrf" value="{{csrfToken}}" />
             <button class="btn btn-outline-danger btn-sm" type="submit">Delete</button>
           </form>
         </td>

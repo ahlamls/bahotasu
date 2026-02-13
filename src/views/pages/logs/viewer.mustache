@@ -10,6 +10,15 @@
 <div class="card-lite p-3 mb-3">
   <div class="d-flex flex-wrap gap-2 align-items-center">
     <button id="refreshBtn" class="btn btn-primary btn-sm">Refresh</button>
+    <button
+      id="stringSearchBtn"
+      class="btn btn-outline-secondary btn-sm"
+      type="button"
+      data-bs-toggle="modal"
+      data-bs-target="#stringSearchModal"
+    >
+      String search
+    </button>
     <div class="form-check form-switch">
       <input class="form-check-input" type="checkbox" role="switch" id="autoRefresh">
       <label class="form-check-label" for="autoRefresh">Auto refresh</label>
@@ -30,13 +39,50 @@
   <span>Auto refresh interval: 3s</span>
 </div>
 
+<div class="modal fade" id="stringSearchModal" tabindex="-1" aria-labelledby="stringSearchModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="get" action="/logs/{{logId}}/search">
+        <div class="modal-header">
+          <h2 class="modal-title fs-5" id="stringSearchModalLabel">String search</h2>
+          <button id="closeSearchModalTop" type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <label for="searchQuery" class="form-label">String to find</label>
+          <input
+            type="text"
+            class="form-control"
+            id="searchQuery"
+            name="q"
+            placeholder="Example: <title>Error</title>"
+            required
+          />
+          <div class="form-text">
+            Searches full file and shows last 5 matches with 10 lines before and after.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="closeSearchModalBottom" type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Search</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <script>
   (() => {
     const logId = {{logId}};
+    const csrfToken = "{{csrfToken}}";
     const endpoints = {
       content: `/logs/${logId}/content`,
       clear: `/logs/${logId}/clear`,
     };
+    const searchBtn = document.getElementById("stringSearchBtn");
+    const searchModalEl = document.getElementById("stringSearchModal");
+    const searchInput = document.getElementById("searchQuery");
+    const closeSearchModalTop = document.getElementById("closeSearchModalTop");
+    const closeSearchModalBottom = document.getElementById("closeSearchModalBottom");
     const STORAGE_KEYS = {
       autoRefresh: "bahotasu_auto_refresh",
       autoScroll: "bahotasu_auto_scroll",
@@ -66,6 +112,7 @@
     const statusLine = document.getElementById("statusLine");
     const INTERVAL = 3000;
     let timer = null;
+    let fallbackBackdrop = null;
 
     const setStatus = (text) => {
       statusLine.textContent = text;
@@ -111,7 +158,54 @@
       }
     };
 
+    const showSearchModal = () => {
+      if (!searchModalEl) return;
+
+      if (window.bootstrap?.Modal) {
+        const instance = window.bootstrap.Modal.getOrCreateInstance(searchModalEl);
+        instance.show();
+        setTimeout(() => searchInput?.focus(), 100);
+        return;
+      }
+
+      searchModalEl.style.display = "block";
+      searchModalEl.classList.add("show");
+      searchModalEl.removeAttribute("aria-hidden");
+      searchModalEl.setAttribute("aria-modal", "true");
+      fallbackBackdrop = document.createElement("div");
+      fallbackBackdrop.className = "modal-backdrop fade show";
+      document.body.appendChild(fallbackBackdrop);
+      document.body.classList.add("modal-open");
+      searchInput?.focus();
+    };
+
+    const hideSearchModal = () => {
+      if (!searchModalEl) return;
+
+      if (window.bootstrap?.Modal) {
+        const instance = window.bootstrap.Modal.getOrCreateInstance(searchModalEl);
+        instance.hide();
+        return;
+      }
+
+      searchModalEl.classList.remove("show");
+      searchModalEl.style.display = "none";
+      searchModalEl.setAttribute("aria-hidden", "true");
+      searchModalEl.removeAttribute("aria-modal");
+      if (fallbackBackdrop) {
+        fallbackBackdrop.remove();
+        fallbackBackdrop = null;
+      }
+      document.body.classList.remove("modal-open");
+    };
+
     refreshBtn.addEventListener("click", fetchLogs);
+    searchBtn?.addEventListener("click", (event) => {
+      event.preventDefault();
+      showSearchModal();
+    });
+    closeSearchModalTop?.addEventListener("click", hideSearchModal);
+    closeSearchModalBottom?.addEventListener("click", hideSearchModal);
 
     autoRefresh.addEventListener("change", () => {
       writeBool(STORAGE_KEYS.autoRefresh, autoRefresh.checked);
@@ -132,7 +226,10 @@
       if (!confirm("Clear this log file?")) return;
       setStatus("Clearing...");
       try {
-        const response = await fetch(endpoints.clear, { method: "POST" });
+        const response = await fetch(endpoints.clear, {
+          method: "POST",
+          headers: { "x-csrf-token": csrfToken },
+        });
         const body = await response.text();
         if (response.ok) {
           textarea.value = "(log cleared)";

@@ -1,0 +1,50 @@
+<section class="mb-4">
+  <p class="text-secondary small text-uppercase mb-1">String search</p>
+  <h1 class="h4 fw-semibold mb-1">{{logName}}</h1>
+  <p class="text-secondary small mb-0">File: <code>{{filePath}}</code></p>
+</section>
+
+<div class="card-lite p-3 mb-3">
+  <form method="get" action="/logs/{{logId}}/search" class="row g-2 align-items-end">
+    <div class="col-12">
+      <label class="form-label small text-uppercase text-secondary mb-1" for="q">Search string (fixed)</label>
+      <input
+        type="text"
+        id="q"
+        name="q"
+        class="form-control"
+        value="{{queryValue}}"
+        placeholder="Example: <title>Error</title>"
+        required
+      />
+      <div class="form-text">Searches entire file and returns last 5 matches with 10 lines before/after each.</div>
+      <button type="submit" class="w-100 btn btn-primary">Search</button>
+  
+    </div>
+   
+  </form>
+</div>
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <a class="btn btn-outline-secondary btn-sm" href="{{viewerUrl}}">Back to log viewer</a>
+  {{#totalShown}}
+  <span class="text-secondary small">Occurrences shown: {{totalShown}}</span>
+  {{/totalShown}}
+</div>
+
+{{#notice}}
+<div class="alert alert-info" role="alert">
+  {{notice}}
+</div>
+{{/notice}}
+
+{{#error}}
+<div class="alert alert-danger" role="alert">
+  {{error}}
+</div>
+{{/error}}
+
+{{#hasOutput}}
+<textarea class="form-control" rows="26" readonly>{{output}}</textarea>
+{{/hasOutput}}
+

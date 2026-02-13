@@ -41,6 +41,7 @@
             <a class="btn btn-outline-secondary btn-sm" href="/users/{{id}}/edit">Edit</a>
             <a class="btn btn-outline-primary btn-sm" href="/users/{{id}}/groups">Groups</a>
             <form method="post" action="/users/{{id}}/delete" onsubmit="return confirm('Delete this user?');">
+              <input type="hidden" name="_csrf" value="{{csrfToken}}" />
               <button class="btn btn-outline-danger btn-sm" type="submit">Delete</button>
             </form>
           </div>

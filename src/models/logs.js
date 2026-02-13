@@ -104,6 +104,7 @@ export const LogModel = {
 
   update(id, { name, description, filePath, tailLines, allowClear, groupId }) {
     const now = new Date().toISOString();
+    const groupProvided = groupId !== undefined;
     const stmt = db().prepare(`
       UPDATE logs
       SET
@@ -112,7 +113,7 @@ export const LogModel = {
         file_path = COALESCE(@filePath, file_path),
         tail_lines = COALESCE(@tailLines, tail_lines),
         allow_clear = COALESCE(@allowClear, allow_clear),
-        group_id = COALESCE(@groupId, group_id),
+        group_id = CASE WHEN @groupProvided THEN @groupId ELSE group_id END,
         updated_at = @now
       WHERE id = @id
     `);
@@ -125,6 +126,7 @@ export const LogModel = {
       tailLines,
       allowClear: typeof allowClear === "boolean" ? (allowClear ? 1 : 0) : undefined,
       groupId,
+      groupProvided: groupProvided ? 1 : 0,
       now,
     });
 

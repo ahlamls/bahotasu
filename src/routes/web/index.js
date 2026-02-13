@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
@@ -75,6 +76,7 @@ const basePageData = (user, { activeNav } = {}) => {
     currentUser: buildLayoutUser(user),
     logoIconSrc: logoData.icon,
     logoTextSrc: logoData.text,
+    csrfToken: "",
   };
 
   if (user?.role === USER_ROLES.SUPERADMIN) {
@@ -161,6 +163,7 @@ const renderLogin = (c, { error, usernameValue, rememberChecked, notice } = {}) 
     {
       pageTitle: "Login",
       year: new Date().getFullYear(),
+      csrfToken: getCsrfToken(c),
       rememberChecked: rememberCookie,
       logoSrc: logoData.full,
       error,
@@ -180,6 +183,7 @@ const renderDashboard = (c) => {
 
   const html = renderPage("pages/dashboard", {
     ...basePageData(user, { activeNav: "home" }),
+    csrfToken: getCsrfToken(c),
     pageTitle: "Dashboard",
     userName: user.name,
     dashboardGroups,
@@ -197,6 +201,7 @@ const renderProfile = (c, state = {}) => {
 
   const html = renderPage("pages/profile", {
     ...basePageData(user),
+    csrfToken: getCsrfToken(c),
     pageTitle: "Profile",
     username: user.username,
     email: user.email,
@@ -240,6 +245,35 @@ const parseTailLines = (value) => {
   return clamped;
 };
 
+const SEARCH_CONTEXT_LINES = 10;
+const SEARCH_OCCURRENCE_LIMIT = 5;
+
+const getCsrfToken = (c) => {
+  const token = c.get("csrfToken");
+  return typeof token === "string" ? token : "";
+};
+
+const hasValidCsrfToken = (c, body) => {
+  const expected = getCsrfToken(c);
+  if (!expected) return false;
+
+  const bodyToken = body?._csrf;
+  const headerToken = c.req.header("x-csrf-token");
+  const provided =
+    typeof bodyToken === "string"
+      ? bodyToken
+      : typeof headerToken === "string"
+        ? headerToken
+        : "";
+
+  if (!provided) return false;
+
+  const expectedBuffer = Buffer.from(expected);
+  const providedBuffer = Buffer.from(provided);
+  if (expectedBuffer.length !== providedBuffer.length) return false;
+  return crypto.timingSafeEqual(expectedBuffer, providedBuffer);
+};
+
 const runTail = (filePath, lines) =>
   new Promise((resolve, reject) => {
     const tail = spawn("tail", ["-n", String(lines), filePath], { stdio: ["ignore", "pipe", "pipe"] });
@@ -269,12 +303,132 @@ const truncateFile = (filePath) =>
     });
   });
 
+const findLastMatchLineNumbers = (filePath, query, limit) =>
+  new Promise((resolve, reject) => {
+    const proc = spawn("grep", ["-F", "-n", "--", query, filePath], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stderr = "";
+    let remainder = "";
+    const lastMatches = [];
+
+    const pushMatch = (line) => {
+      const match = /^(\d+):/.exec(line);
+      if (!match) return;
+      lastMatches.push(Number(match[1]));
+      if (lastMatches.length > limit) {
+        lastMatches.shift();
+      }
+    };
+
+    proc.stdout.on("data", (chunk) => {
+      remainder += chunk.toString();
+      const lines = remainder.split("\n");
+      remainder = lines.pop() ?? "";
+      lines.forEach(pushMatch);
+    });
+
+    proc.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    proc.on("close", (code) => {
+      if (remainder) {
+        pushMatch(remainder);
+      }
+      if (code === 0) {
+        resolve(lastMatches);
+        return;
+      }
+      if (code === 1) {
+        resolve([]);
+        return;
+      }
+      reject(new Error(stderr || `grep exited with code ${code}`));
+    });
+  });
+
+const readFileRange = (filePath, startLine, endLine) =>
+  new Promise((resolve, reject) => {
+    const proc = spawn("sed", ["-n", `${startLine},${endLine}p`, filePath], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    proc.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    proc.on("close", (code) => {
+      if (code === 0) {
+        resolve(stdout);
+      } else {
+        reject(new Error(stderr || `sed exited with code ${code}`));
+      }
+    });
+  });
+
+const formatSearchResultBlock = ({ filePath, query, lineNumber, context, occurrence, total }) => {
+  const lines = context.replace(/\n$/, "").split("\n");
+  const startLine = Math.max(1, lineNumber - SEARCH_CONTEXT_LINES);
+  const formattedLines = lines
+    .map((line, index) => {
+      const currentLine = startLine + index;
+      const marker = currentLine === lineNumber ? ">" : " ";
+      return `${marker} ${String(currentLine).padStart(7, " ")} | ${line}`;
+    })
+    .join("\n");
+
+  return [
+    `Occurrence ${occurrence}/${total}`,
+    `File: ${filePath}`,
+    `Match line: ${lineNumber}`,
+    `Query: ${query}`,
+    "----------------------------------------",
+    formattedLines || "(no content)",
+  ].join("\n");
+};
+
+const searchLogWithContext = async (filePath, query) => {
+  const matchLines = await findLastMatchLineNumbers(filePath, query, SEARCH_OCCURRENCE_LIMIT);
+  if (matchLines.length === 0) {
+    return { totalShown: 0, output: "" };
+  }
+
+  const sections = [];
+  for (let index = 0; index < matchLines.length; index += 1) {
+    const lineNumber = matchLines[index];
+    const startLine = Math.max(1, lineNumber - SEARCH_CONTEXT_LINES);
+    const endLine = lineNumber + SEARCH_CONTEXT_LINES;
+    const context = await readFileRange(filePath, startLine, endLine);
+    sections.push(
+      formatSearchResultBlock({
+        filePath,
+        query,
+        lineNumber,
+        context,
+        occurrence: index + 1,
+        total: matchLines.length,
+      }),
+    );
+  }
+
+  return {
+    totalShown: matchLines.length,
+    output: sections.join("\n\n========================================\n\n"),
+  };
+};
+
 const renderGroupList = (c, state = {}) => {
   const user = c.get("currentUser");
   const groups = GroupModel.listAll();
   const noticeKey = state.notice || c.req.query("notice");
   const html = renderPage("pages/groups/list", {
     ...basePageData(user, { activeNav: "groups" }),
+    csrfToken: getCsrfToken(c),
     pageTitle: "Groups",
     groups,
     notice: groupNotices[noticeKey] || null,
@@ -287,6 +441,7 @@ const renderGroupForm = (c, state = {}) => {
   const user = c.get("currentUser");
   const html = renderPage("pages/groups/form", {
     ...basePageData(user, { activeNav: "groups" }),
+    csrfToken: getCsrfToken(c),
     pageTitle: state.title,
     title: state.title,
     formAction: state.formAction,
@@ -309,6 +464,7 @@ const renderUserList = (c, state = {}) => {
   }));
   const html = renderPage("pages/users/list", {
     ...basePageData(user, { activeNav: "users" }),
+    csrfToken: getCsrfToken(c),
     pageTitle: "Users",
     users,
     notice: userNotices[noticeKey] || null,
@@ -321,6 +477,7 @@ const renderUserForm = (c, state = {}) => {
   const user = c.get("currentUser");
   const html = renderPage("pages/users/form", {
     ...basePageData(user, { activeNav: "users" }),
+    csrfToken: getCsrfToken(c),
     pageTitle: state.title,
     title: state.title,
     formAction: state.formAction,
@@ -346,6 +503,7 @@ const renderUserGroups = (c, state = {}) => {
   const noticeKey = state.notice || c.req.query("notice");
   const html = renderPage("pages/users/groups", {
     ...basePageData(user, { activeNav: "users" }),
+    csrfToken: getCsrfToken(c),
     pageTitle: "User groups",
     userName: targetUser.name,
     userEmail: targetUser.email,
@@ -370,6 +528,7 @@ const renderLogList = (c, state = {}) => {
   }));
   const html = renderPage("pages/logs/list", {
     ...basePageData(user, { activeNav: "logs" }),
+    csrfToken: getCsrfToken(c),
     pageTitle: "Logs",
     logs,
     notice: logNotices[noticeKey] || null,
@@ -388,6 +547,7 @@ const renderLogForm = (c, state = {}) => {
   }));
   const html = renderPage("pages/logs/form", {
     ...basePageData(user, { activeNav: "logs" }),
+    csrfToken: getCsrfToken(c),
     pageTitle: state.title,
     title: state.title,
     formAction: state.formAction,
@@ -400,6 +560,26 @@ const renderLogForm = (c, state = {}) => {
     groups,
     noGroupSelected: selectedGroupId === null,
     error: state.error,
+  });
+  return c.html(html);
+};
+
+const renderLogSearchPage = (c, state = {}) => {
+  const user = c.get("currentUser");
+  const html = renderPage("pages/logs/search", {
+    ...basePageData(user),
+    csrfToken: getCsrfToken(c),
+    pageTitle: `${state.log?.name || "Log"} · String search`,
+    logId: state.log?.id,
+    logName: state.log?.name || "",
+    filePath: state.log?.filePath || "",
+    viewerUrl: state.log ? `/logs/${state.log.id}/view` : "/dashboard",
+    queryValue: state.queryValue || "",
+    error: state.error,
+    notice: state.notice,
+    output: state.output || "",
+    hasOutput: !!state.output,
+    totalShown: state.totalShown || 0,
   });
   return c.html(html);
 };
@@ -447,6 +627,9 @@ router.post(
   "/login",
   ensureGuest(async (c) => {
     const body = await c.req.parseBody();
+    if (!hasValidCsrfToken(c, body)) {
+      return c.text("Invalid CSRF token.", 403);
+    }
     const identifier = typeof body.username === "string" ? body.username.trim() : "";
     const password = typeof body.password === "string" ? body.password : "";
     const rememberInput = body.remember;
@@ -499,6 +682,9 @@ router.post(
   requireAuth(async (c) => {
     const user = c.get("currentUser");
     const body = await c.req.parseBody();
+    if (!hasValidCsrfToken(c, body)) {
+      return c.text("Invalid CSRF token.", 403);
+    }
     const displayName =
       typeof body.displayName === "string" ? body.displayName.trim() : "";
 
@@ -529,6 +715,9 @@ router.post(
   requireAuth(async (c) => {
     const user = c.get("currentUser");
     const body = await c.req.parseBody();
+    if (!hasValidCsrfToken(c, body)) {
+      return c.text("Invalid CSRF token.", 403);
+    }
     const currentPassword =
       typeof body.currentPassword === "string" ? body.currentPassword : "";
     const newPassword =
@@ -593,6 +782,9 @@ router.post(
   "/groups",
   requireSuperAdmin(async (c) => {
     const body = await c.req.parseBody();
+    if (!hasValidCsrfToken(c, body)) {
+      return c.text("Invalid CSRF token.", 403);
+    }
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const slugInput = typeof body.slug === "string" ? body.slug : "";
     const description = typeof body.description === "string" ? body.description.trim() : "";
@@ -675,6 +867,9 @@ router.post(
     }
 
     const body = await c.req.parseBody();
+    if (!hasValidCsrfToken(c, body)) {
+      return c.text("Invalid CSRF token.", 403);
+    }
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const description = typeof body.description === "string" ? body.description.trim() : "";
 
@@ -703,7 +898,11 @@ router.post(
 
 router.post(
   "/groups/:id/delete",
-  requireSuperAdmin((c) => {
+  requireSuperAdmin(async (c) => {
+    const body = await c.req.parseBody();
+    if (!hasValidCsrfToken(c, body)) {
+      return c.text("Invalid CSRF token.", 403);
+    }
     const id = Number(c.req.param("id"));
     const group = GroupModel.findById(id);
     if (!group) {
@@ -731,6 +930,9 @@ router.post(
   "/users",
   requireSuperAdmin(async (c) => {
     const body = await c.req.parseBody();
+    if (!hasValidCsrfToken(c, body)) {
+      return c.text("Invalid CSRF token.", 403);
+    }
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const username = typeof body.username === "string" ? body.username.trim() : "";
     const email = typeof body.email === "string" ? body.email.trim() : "";
@@ -831,6 +1033,9 @@ router.post(
     }
 
     const body = await c.req.parseBody();
+    if (!hasValidCsrfToken(c, body)) {
+      return c.text("Invalid CSRF token.", 403);
+    }
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const password = typeof body.password === "string" ? body.password : "";
     const confirmPassword = typeof body.confirmPassword === "string" ? body.confirmPassword : "";
@@ -848,8 +1053,6 @@ router.post(
         error: "Name is required.",
       });
     }
-
-    UserModel.updateProfile(target.id, { name });
 
     if (password || confirmPassword) {
       if (password.length < 6) {
@@ -882,6 +1085,8 @@ router.post(
       UserModel.updatePassword(target.id, passwordHash);
     }
 
+    UserModel.updateProfile(target.id, { name });
+
     return c.redirect("/users?notice=updated");
   }),
 );
@@ -910,6 +1115,9 @@ router.post(
     }
 
     const body = await c.req.parseBody();
+    if (!hasValidCsrfToken(c, body)) {
+      return c.text("Invalid CSRF token.", 403);
+    }
     const raw = body.groupIds;
     const selected = new Set(
       (Array.isArray(raw) ? raw : raw ? [raw] : []).map((value) => Number(value)),
@@ -935,7 +1143,11 @@ router.post(
 
 router.post(
   "/users/:id/delete",
-  requireSuperAdmin((c) => {
+  requireSuperAdmin(async (c) => {
+    const body = await c.req.parseBody();
+    if (!hasValidCsrfToken(c, body)) {
+      return c.text("Invalid CSRF token.", 403);
+    }
     const id = Number(c.req.param("id"));
     const target = UserModel.findById(id);
     if (!target) {
@@ -997,6 +1209,9 @@ router.post(
   "/logs",
   requireSuperAdmin(async (c) => {
     const body = await c.req.parseBody();
+    if (!hasValidCsrfToken(c, body)) {
+      return c.text("Invalid CSRF token.", 403);
+    }
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const description = typeof body.description === "string" ? body.description.trim() : "";
     const filePath = typeof body.filePath === "string" ? body.filePath.trim() : "";
@@ -1080,6 +1295,9 @@ router.post(
       return renderLogList(c, { error: "Log entry not found." });
     }
     const body = await c.req.parseBody();
+    if (!hasValidCsrfToken(c, body)) {
+      return c.text("Invalid CSRF token.", 403);
+    }
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const description = typeof body.description === "string" ? body.description.trim() : "";
     const filePath = typeof body.filePath === "string" ? body.filePath.trim() : "";
@@ -1131,7 +1349,11 @@ router.post(
 
 router.post(
   "/logs/:id/delete",
-  requireSuperAdmin((c) => {
+  requireSuperAdmin(async (c) => {
+    const body = await c.req.parseBody();
+    if (!hasValidCsrfToken(c, body)) {
+      return c.text("Invalid CSRF token.", 403);
+    }
     const id = Number(c.req.param("id"));
     const log = LogModel.findById(id);
     if (!log) {
@@ -1150,6 +1372,7 @@ router.get(
     const user = c.get("currentUser");
     const html = renderPage("pages/logs/viewer", {
       ...basePageData(user),
+      csrfToken: getCsrfToken(c),
       pageTitle: `${log.name} · Logs`,
       logId: log.id,
       name: log.name,
@@ -1161,6 +1384,58 @@ router.get(
       allowClear: !!log.allowClear,
     });
     return c.html(html);
+  }),
+);
+
+router.get(
+  "/logs/:id/search",
+  requireAuth(async (c) => {
+    const { log, error } = getAuthorizedLog(c);
+    if (error) return error;
+
+    const queryInput = c.req.query("q");
+    const queryValue = typeof queryInput === "string" ? queryInput.trim() : "";
+
+    if (!queryValue) {
+      return renderLogSearchPage(c, {
+        log,
+        queryValue: "",
+        notice: "Enter a string to search this full log file.",
+      });
+    }
+
+    if (queryValue.length > 500) {
+      return renderLogSearchPage(c, {
+        log,
+        queryValue,
+        error: "Search query is too long (max 500 characters).",
+      });
+    }
+
+    try {
+      const result = await searchLogWithContext(log.filePath, queryValue);
+      if (result.totalShown === 0) {
+        return renderLogSearchPage(c, {
+          log,
+          queryValue,
+          notice: "No matches found.",
+        });
+      }
+
+      return renderLogSearchPage(c, {
+        log,
+        queryValue,
+        output: result.output,
+        totalShown: result.totalShown,
+        notice: `Showing last ${result.totalShown} occurrence(s) with ±${SEARCH_CONTEXT_LINES} lines.`,
+      });
+    } catch (err) {
+      return renderLogSearchPage(c, {
+        log,
+        queryValue,
+        error: `Failed to search log: ${err.message}`,
+      });
+    }
   }),
 );
 
@@ -1181,6 +1456,9 @@ router.get(
 router.post(
   "/logs/:id/clear",
   requireAuth(async (c) => {
+    if (!hasValidCsrfToken(c)) {
+      return c.text("Invalid CSRF token.", 403);
+    }
     const { log, error } = getAuthorizedLog(c);
     if (error) return error;
     if (!log.allowClear) {
@@ -1197,7 +1475,11 @@ router.post(
 
 router.post(
   "/logout",
-  requireAuth((c) => {
+  requireAuth(async (c) => {
+    const body = await c.req.parseBody();
+    if (!hasValidCsrfToken(c, body)) {
+      return c.text("Invalid CSRF token.", 403);
+    }
     const session = c.get("session");
     if (session?.id) {
       SessionModel.deleteById(session.id);

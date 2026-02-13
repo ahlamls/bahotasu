@@ -41,6 +41,7 @@
       </div>
       {{/nameError}}
       <form method="post" action="/profile/name" class="d-grid gap-3">
+        <input type="hidden" name="_csrf" value="{{csrfToken}}" />
         <div>
           <label for="displayName" class="form-label small text-uppercase text-secondary">Full name</label>
           <input
@@ -67,6 +68,7 @@
       </div>
       {{/passwordError}}
       <form method="post" action="/profile/password" class="d-grid gap-3">
+        <input type="hidden" name="_csrf" value="{{csrfToken}}" />
         <div>
           <label for="currentPassword" class="form-label small text-uppercase text-secondary">Current password</label>
           <input type="password" id="currentPassword" name="currentPassword" class="form-control" required />

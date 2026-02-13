@@ -11,6 +11,7 @@
 
 <div class="card-lite p-4">
   <form method="post" action="{{formAction}}" class="d-grid gap-3">
+    <input type="hidden" name="_csrf" value="{{csrfToken}}" />
     <div>
       <label for="name" class="form-label small text-uppercase text-secondary">Group name</label>
       <input type="text" class="form-control" id="name" name="name" value="{{nameValue}}" required maxlength="120" />

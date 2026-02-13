@@ -73,6 +73,7 @@
           </a>
           {{#logoutAction}}
           <form method="post" action="{{logoutAction}}">
+            <input type="hidden" name="_csrf" value="{{csrfToken}}" />
             <button class="btn btn-outline-danger btn-sm" type="submit">Logout</button>
           </form>
           {{/logoutAction}}

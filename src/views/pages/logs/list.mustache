@@ -44,6 +44,7 @@
           <div class="d-flex flex-wrap gap-2 justify-content-end">
             <a class="btn btn-outline-secondary btn-sm" href="/logs/{{id}}/edit">Edit</a>
             <form method="post" action="/logs/{{id}}/delete" onsubmit="return confirm('Delete this log?');">
+              <input type="hidden" name="_csrf" value="{{csrfToken}}" />
               <button class="btn btn-outline-danger btn-sm" type="submit">Delete</button>
             </form>
           </div>

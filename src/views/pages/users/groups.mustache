@@ -18,6 +18,7 @@
 <div class="card-lite p-4">
 {{#hasGroups}}
   <form method="post" action="{{formAction}}">
+    <input type="hidden" name="_csrf" value="{{csrfToken}}" />
     <div class="table-responsive">
       <table class="table align-middle">
         <thead>
