@@ -7,3 +7,6 @@ dist
 coverage
 data/*
 data
+data/bahotasu.sqlite
+data/bahotasu.sqlite-shm
+data/bahotasu.sqlite-wal

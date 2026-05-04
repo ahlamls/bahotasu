@@ -50,7 +50,19 @@
     </div>
 
     <div class="row g-3">
-      <div class="col-12 col-md-6">
+      <div class="col-12 col-md-3">
+        <label class="form-label small text-uppercase text-secondary" for="username">SSH User</label>
+        <input
+          type="text"
+          id="username"
+          name="username"
+          class="form-control"
+          value="{{usernameValue}}"
+          placeholder="root"
+          {{#isLocal}}readonly disabled{{/isLocal}}
+        />
+      </div>
+      <div class="col-12 col-md-3">
         <label class="form-label small text-uppercase text-secondary" for="authType">Authentication</label>
         <select id="authType" name="authType" class="form-select" {{#isLocal}}disabled{{/isLocal}}>
           <option value="password" {{#authTypeValue}}password{{/authTypeValue}}>SSH Password</option>

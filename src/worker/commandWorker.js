@@ -100,6 +100,7 @@ const executeSSH = (server, command, timeoutMs) =>
     const connectConfig = {
       host: server.host,
       port: server.port || 22,
+      username: server.username || "root",
       readyTimeout: 10000,
     };
 

@@ -16,6 +16,7 @@ const baseSelect = `
   name,
   host,
   port,
+  username,
   auth_type AS authType,
   encrypted_private_key AS encryptedPrivateKey,
   encrypted_password AS encryptedPassword,
@@ -30,16 +31,17 @@ export const ServerModel = {
    * Creates a new server record. Encrypted credentials should be pre-encrypted
    * by the caller using the encryption module before passing in.
    */
-  create({ name, host = null, port = 22, authType, encryptedPrivateKey = null, encryptedPassword = null }) {
+  create({ name, host = null, port = 22, username = "root", authType, encryptedPrivateKey = null, encryptedPassword = null }) {
     const now = new Date().toISOString();
     const stmt = db().prepare(`
-      INSERT INTO servers (name, host, port, auth_type, encrypted_private_key, encrypted_password, created_at, updated_at)
-      VALUES (@name, @host, @port, @authType, @encryptedPrivateKey, @encryptedPassword, @now, @now)
+      INSERT INTO servers (name, host, port, username, auth_type, encrypted_private_key, encrypted_password, created_at, updated_at)
+      VALUES (@name, @host, @port, @username, @authType, @encryptedPrivateKey, @encryptedPassword, @now, @now)
     `);
     const result = stmt.run({
       name,
       host: host || null,
       port,
+      username,
       authType,
       encryptedPrivateKey: encryptedPrivateKey || null,
       encryptedPassword: encryptedPassword || null,
@@ -73,7 +75,7 @@ export const ServerModel = {
    * Updates a server record. Pass new encrypted credentials only if changed.
    * Returns the updated server.
    */
-  update(id, { name, host, port, authType, encryptedPrivateKey, encryptedPassword }) {
+  update(id, { name, host, port, username, authType, encryptedPrivateKey, encryptedPassword }) {
     const now = new Date().toISOString();
 
     // Build dynamic UPDATE to only overwrite credential columns when new values are provided
@@ -83,6 +85,7 @@ export const ServerModel = {
     if (name !== undefined) { fields.push("name = @name"); params.name = name; }
     if (host !== undefined) { fields.push("host = @host"); params.host = host || null; }
     if (port !== undefined) { fields.push("port = @port"); params.port = port; }
+    if (username !== undefined) { fields.push("username = @username"); params.username = username; }
     if (authType !== undefined) { fields.push("auth_type = @authType"); params.authType = authType; }
 
     // Only update credential fields if new values are explicitly provided (non-nullish)

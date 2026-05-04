@@ -25,6 +25,7 @@
         <th scope="col">Name</th>
         <th scope="col">Host</th>
         <th scope="col">Port</th>
+        <th scope="col">User</th>
         <th scope="col">Auth</th>
         <th scope="col">Status</th>
         <th scope="col" class="text-end">Actions</th>
@@ -38,6 +39,7 @@
         </td>
         <td><code>{{hostLabel}}</code></td>
         <td>{{port}}</td>
+        <td>{{#username}}<code>{{username}}</code>{{/username}}{{^username}}—{{/username}}</td>
         <td>{{authTypeLabel}}</td>
         <td>
           <button
@@ -63,7 +65,7 @@
       {{/servers}}
       {{^servers}}
       <tr>
-        <td colspan="6" class="text-center text-secondary py-4">No servers found.</td>
+        <td colspan="7" class="text-center text-secondary py-4">No servers found.</td>
       </tr>
       {{/servers}}
     </tbody>

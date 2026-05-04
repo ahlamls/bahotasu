@@ -426,6 +426,7 @@ There are two roles in the system: **Superadmin** and **User**.
 - `GET /admin/servers/new` renders the create form.
 - `POST /admin/servers` processes creation.
 - Required: **name**, **host** (unless local), **auth type** (`local`, `key`, or `password`), and **credential** (for `key`/`password`).
+- Optional: **SSH username** (defaults to `root` for remote servers; hidden/disabled for local).
 - Credential is encrypted via AES-256-GCM before insert.
 - Port defaults to 22 for remote servers.
 
@@ -444,7 +445,7 @@ There are two roles in the system: **Superadmin** and **User**.
 
 #### FR-SRV-06 — Test Connection
 
-- `POST /admin/servers/:id/test` attempts `echo OK` on the target (local spawn or SSH exec).
+- `POST /admin/servers/:id/test` attempts `echo OK` on the target (local spawn or SSH exec with the server's username).
 - Returns JSON `{ success: true/false, message: "..." }`.
 - Credentials are decrypted in-memory only during the test, never exposed in the response.
 
@@ -630,6 +631,7 @@ Unique constraint on `(user_id, group_id)`.
 | `name` | TEXT NOT NULL | |
 | `host` | TEXT | NULL for local |
 | `port` | INTEGER DEFAULT 22 | |
+| `username` | TEXT NOT NULL DEFAULT 'root' | SSH user for remote connections |
 | `auth_type` | TEXT NOT NULL | `'key'`, `'password'`, or `'local'` |
 | `encrypted_private_key` | TEXT | AES-256-GCM encrypted PEM |
 | `encrypted_password` | TEXT | AES-256-GCM encrypted password |

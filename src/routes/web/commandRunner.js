@@ -565,6 +565,7 @@ router.post(
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const host = typeof body.host === "string" ? body.host.trim() : "";
     const port = Number(body.port) || 22;
+    const username = typeof body.username === "string" ? body.username.trim() : "root";
     const authType = typeof body.authType === "string" ? body.authType : "local";
     const credential = typeof body.credential === "string" ? body.credential : "";
 
@@ -587,6 +588,7 @@ router.post(
         nameValue: name,
         hostValue: host,
         portValue: port,
+        usernameValue: username,
         authTypeValue: authType,
         error: errors.join(" "),
       });
@@ -607,6 +609,7 @@ router.post(
       name,
       host: authType === "local" ? null : host,
       port,
+      username: authType === "local" ? "root" : username,
       authType,
       encryptedPrivateKey,
       encryptedPassword,
@@ -641,6 +644,7 @@ router.get(
       nameValue: server.name,
       hostValue: server.host || "",
       portValue: server.port,
+      usernameValue: server.username || "root",
       authTypeValue: server.authType,
     });
     return c.html(html);
@@ -666,10 +670,11 @@ router.post(
     const name = typeof body.name === "string" ? body.name.trim() : server.name;
     const host = typeof body.host === "string" ? body.host.trim() : server.host;
     const port = Number(body.port) || server.port;
+    const username = typeof body.username === "string" ? body.username.trim() : server.username || "root";
     const authType = typeof body.authType === "string" ? body.authType : server.authType;
     const credential = typeof body.credential === "string" ? body.credential : "";
 
-    const updateFields = { name, host, port, authType };
+    const updateFields = { name, host, port, username, authType };
 
     // Only update credential if a new one is provided
     if (credential) {
@@ -756,6 +761,7 @@ router.post(
         const connectConfig = {
           host: server.host,
           port: server.port || 22,
+          username: server.username || "root",
           readyTimeout: 8000,
         };
 
