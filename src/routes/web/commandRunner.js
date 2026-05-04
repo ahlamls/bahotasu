@@ -18,9 +18,6 @@
  */
 
 import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { Client } from "ssh2";
 import { Hono } from "hono";
@@ -102,34 +99,10 @@ const requireSuperAdmin = (handler) =>
 // Helper: build base page data with superadmin nav (consistent with web/index.js)
 // ---------------------------------------------------------------------------
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-/**
- * Resolves a path relative to the project's resources/ directory.
- * The commandRunner.js lives in src/routes/web/, so go up 3 levels to reach the project root.
- */
-const resourcePath = (...segments) =>
-  path.join(__dirname, "..", "..", "..", "resources", ...segments);
-
-/**
- * Reads an SVG file from resources/ and returns it as a base64 data URI.
- * This inlines the logo directly into the HTML, avoiding separate HTTP requests.
- */
-const inlineSvg = (file) => {
-  try {
-    const svg = fs.readFileSync(resourcePath(file), "utf8");
-    const encoded = Buffer.from(svg).toString("base64");
-    return `data:image/svg+xml;base64,${encoded}`;
-  } catch (err) {
-    console.warn(`[commandRunner] Failed to load ${file}`, err);
-    return "";
-  }
-};
-
 const logoData = {
-  icon: inlineSvg("logo-notext.svg"),
-  text: inlineSvg("text-logo.svg"),
-  full: inlineSvg("logo.svg"),
+  icon: "/static/logo-notext.svg",
+  text: "/static/text-logo.svg",
+  full: "/static/logo.svg",
 };
 
 const navItems = [

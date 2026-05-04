@@ -1,7 +1,4 @@
-import fs from "node:fs";
 import crypto from "node:crypto";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { Hono } from "hono";
 import { renderPage } from "../../lib/viewEngine.js";
@@ -20,25 +17,10 @@ const router = new Hono();
 
 router.use("*", attachSession);
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const resourcePath = (...segments) =>
-  path.join(__dirname, "..", "..", "..", "resources", ...segments);
-
-const inlineSvg = (file) => {
-  try {
-    const svg = fs.readFileSync(resourcePath(file), "utf8");
-    const encoded = Buffer.from(svg).toString("base64");
-    return `data:image/svg+xml;base64,${encoded}`;
-  } catch (err) {
-    console.warn(`[web] Failed to load ${file}`, err);
-    return "";
-  }
-};
-
 const logoData = {
-  icon: inlineSvg("logo-notext.svg"),
-  text: inlineSvg("text-logo.svg"),
-  full: inlineSvg("logo.svg"),
+  icon: "/static/logo-notext.svg",
+  text: "/static/text-logo.svg",
+  full: "/static/logo.svg",
 };
 
 const formatInitials = (name = "") => {
