@@ -13,7 +13,7 @@ import {
   REMEMBER_COOKIE,
 } from "../../middleware/session.js";
 import { parseCookies } from "../../lib/cookies.js";
-import { UserModel, SessionModel, LogModel, UserGroupModel, GroupModel, USER_ROLES } from "../../models/index.js";
+import { UserModel, SessionModel, LogModel, UserGroupModel, GroupModel, CommandModel, USER_ROLES } from "../../models/index.js";
 import { verifyPassword, hashPassword } from "../../lib/password.js";
 
 const router = new Hono();
@@ -62,9 +62,10 @@ const buildLayoutUser = (user) =>
 
 const navItems = [
   { key: "home", label: "Home", href: "/dashboard" },
-  { key: "groups", label: "Group Management", href: "/groups" },
-  { key: "users", label: "User Management", href: "/users" },
-  { key: "logs", label: "Logs Management", href: "/logs" },
+  { key: "groups", label: "Group Management", href: "/admin/groups" },
+  { key: "users", label: "User Management", href: "/admin/users" },
+  { key: "logs", label: "Logs Management", href: "/admin/logs" },
+  { key: "commands", label: "Commands Management", href: "/admin/commands" },
 ];
 
 const SLUG_PATTERN = /^[A-Za-z0-9_]+$/;
@@ -143,6 +144,53 @@ const buildDashboardGroups = (user) => {
   return sections;
 };
 
+/**
+ * Builds command dashboard sections grouped by project group.
+ * Same pattern as buildDashboardGroups for logs.
+ * Superadmins see all commands; users see commands in their groups + ungrouped.
+ */
+const buildCommandDashboardGroups = (user) => {
+  const records = CommandModel.listForUser(user.id, user.role);
+
+  const grouped = new Map();
+  const ungrouped = [];
+
+  records.forEach((cmd) => {
+    const item = {
+      id: cmd.id,
+      name: cmd.name,
+      description: cmd.description || "",
+      serverName: cmd.serverName || "Local",
+      passwordRequired: cmd.passwordRequired,
+      isActive: cmd.isActive,
+    };
+    if (cmd.groupId) {
+      if (!grouped.has(cmd.groupId)) {
+        grouped.set(cmd.groupId, {
+          groupId: cmd.groupId,
+          groupName: cmd.groupName || "Group",
+          commands: [],
+        });
+      }
+      grouped.get(cmd.groupId).commands.push(item);
+    } else {
+      ungrouped.push(item);
+    }
+  });
+
+  const sections = Array.from(grouped.values()).sort((a, b) =>
+    a.groupName.localeCompare(b.groupName),
+  );
+  if (ungrouped.length > 0) {
+    sections.push({
+      groupId: null,
+      groupName: "Other commands",
+      commands: ungrouped,
+    });
+  }
+  return sections;
+};
+
 const loginNoticeFromQuery = (c) => {
   const notice = c.req.query("notice");
   if (notice === "password-updated") {
@@ -179,15 +227,18 @@ const renderLogin = (c, { error, usernameValue, rememberChecked, notice } = {}) 
 const renderDashboard = (c) => {
   const user = c.get("currentUser");
   if (!user) return c.redirect("/login");
-  const dashboardGroups = buildDashboardGroups(user);
+  const logGroups = buildDashboardGroups(user);
+  const commandGroups = buildCommandDashboardGroups(user);
 
   const html = renderPage("pages/dashboard", {
     ...basePageData(user, { activeNav: "home" }),
     csrfToken: getCsrfToken(c),
     pageTitle: "Dashboard",
     userName: user.name,
-    dashboardGroups,
-    hasLogs: dashboardGroups.length > 0,
+    logGroups,
+    hasLogs: logGroups.length > 0,
+    commandGroups,
+    hasCommands: commandGroups.length > 0,
   });
 
   return c.html(html);
@@ -495,7 +546,7 @@ const renderUserForm = (c, state = {}) => {
 const renderUserGroups = (c, state = {}) => {
   const user = c.get("currentUser");
   const targetUser = state.targetUser;
-  if (!targetUser) return c.redirect("/users");
+  if (!targetUser) return c.redirect("/admin/users");
   const allGroups = GroupModel.listAll();
   const assigned = new Set(
     (state.assignedGroups || UserGroupModel.listGroupsForUser(targetUser.id)).map((g) => g.id),
@@ -507,7 +558,7 @@ const renderUserGroups = (c, state = {}) => {
     pageTitle: "User groups",
     userName: targetUser.name,
     userEmail: targetUser.email,
-    formAction: `/users/${targetUser.id}/groups`,
+    formAction: `/admin/users/${targetUser.id}/groups`,
     groups: allGroups.map((group) => ({
       ...group,
       assigned: assigned.has(group.id),
@@ -764,14 +815,14 @@ router.post(
   }),
 );
 
-router.get("/groups", requireSuperAdmin((c) => renderGroupList(c)));
+router.get("/admin/groups", requireSuperAdmin((c) => renderGroupList(c)));
 
 router.get(
-  "/groups/new",
+  "/admin/groups/new",
   requireSuperAdmin((c) =>
     renderGroupForm(c, {
       title: "Create group",
-      formAction: "/groups",
+      formAction: "/admin/groups",
       submitLabel: "Create",
       showSlugField: true,
     }),
@@ -779,7 +830,7 @@ router.get(
 );
 
 router.post(
-  "/groups",
+  "/admin/groups",
   requireSuperAdmin(async (c) => {
     const body = await c.req.parseBody();
     if (!hasValidCsrfToken(c, body)) {
@@ -793,7 +844,7 @@ router.post(
     if (!name || !slug) {
       return renderGroupForm(c, {
         title: "Create group",
-        formAction: "/groups",
+        formAction: "/admin/groups",
         submitLabel: "Create",
         nameValue: name,
         slugValue: slugInput,
@@ -805,7 +856,7 @@ router.post(
     if (!SLUG_PATTERN.test(slug)) {
       return renderGroupForm(c, {
         title: "Create group",
-        formAction: "/groups",
+        formAction: "/admin/groups",
         submitLabel: "Create",
         nameValue: name,
         slugValue: slugInput,
@@ -821,7 +872,7 @@ router.post(
       if (error.message.includes("UNIQUE")) {
         return renderGroupForm(c, {
         title: "Create group",
-        formAction: "/groups",
+        formAction: "/admin/groups",
         submitLabel: "Create",
         nameValue: name,
         slugValue: slugInput,
@@ -833,12 +884,12 @@ router.post(
       throw error;
     }
 
-    return c.redirect("/groups?notice=created");
+    return c.redirect("/admin/groups?notice=created");
   }),
 );
 
 router.get(
-  "/groups/:id/edit",
+  "/admin/groups/:id/edit",
   requireSuperAdmin((c) => {
     const id = Number(c.req.param("id"));
     const group = GroupModel.findById(id);
@@ -847,7 +898,7 @@ router.get(
     }
     return renderGroupForm(c, {
       title: "Edit group",
-      formAction: `/groups/${group.id}`,
+      formAction: `/admin/groups/${group.id}`,
       submitLabel: "Save changes",
       nameValue: group.name,
       slugValue: group.slug,
@@ -858,7 +909,7 @@ router.get(
 );
 
 router.post(
-  "/groups/:id",
+  "/admin/groups/:id",
   requireSuperAdmin(async (c) => {
     const id = Number(c.req.param("id"));
     const group = GroupModel.findById(id);
@@ -876,7 +927,7 @@ router.post(
     if (!name) {
       return renderGroupForm(c, {
         title: "Edit group",
-        formAction: `/groups/${group.id}`,
+        formAction: `/admin/groups/${group.id}`,
         submitLabel: "Save changes",
         nameValue: name,
         slugValue: group.slug,
@@ -892,12 +943,12 @@ router.post(
       throw error;
     }
 
-    return c.redirect("/groups?notice=updated");
+    return c.redirect("/admin/groups?notice=updated");
   }),
 );
 
 router.post(
-  "/groups/:id/delete",
+  "/admin/groups/:id/delete",
   requireSuperAdmin(async (c) => {
     const body = await c.req.parseBody();
     if (!hasValidCsrfToken(c, body)) {
@@ -909,25 +960,25 @@ router.post(
       return renderGroupList(c, { error: "Group not found." });
     }
     GroupModel.remove(id);
-    return c.redirect("/groups?notice=deleted");
+    return c.redirect("/admin/groups?notice=deleted");
   }),
 );
 
-router.get("/users", requireSuperAdmin((c) => renderUserList(c)));
+router.get("/admin/users", requireSuperAdmin((c) => renderUserList(c)));
 
 router.get(
-  "/users/new",
+  "/admin/users/new",
   requireSuperAdmin((c) =>
     renderUserForm(c, {
       title: "Create user",
-      formAction: "/users",
+      formAction: "/admin/users",
       submitLabel: "Create",
     }),
   ),
 );
 
 router.post(
-  "/users",
+  "/admin/users",
   requireSuperAdmin(async (c) => {
     const body = await c.req.parseBody();
     if (!hasValidCsrfToken(c, body)) {
@@ -942,7 +993,7 @@ router.post(
     if (!name || !username || !email || !password) {
       return renderUserForm(c, {
         title: "Create user",
-        formAction: "/users",
+        formAction: "/admin/users",
         submitLabel: "Create",
         nameValue: name,
         usernameValue: username,
@@ -954,7 +1005,7 @@ router.post(
     if (password.length < 6) {
       return renderUserForm(c, {
         title: "Create user",
-        formAction: "/users",
+        formAction: "/admin/users",
         submitLabel: "Create",
         nameValue: name,
         usernameValue: username,
@@ -965,7 +1016,7 @@ router.post(
     if (password !== confirmPassword) {
       return renderUserForm(c, {
         title: "Create user",
-        formAction: "/users",
+        formAction: "/admin/users",
         submitLabel: "Create",
         nameValue: name,
         usernameValue: username,
@@ -981,7 +1032,7 @@ router.post(
       if (error.message.includes("UNIQUE")) {
         return renderUserForm(c, {
           title: "Create user",
-          formAction: "/users",
+          formAction: "/admin/users",
           submitLabel: "Create",
           nameValue: name,
           usernameValue: username,
@@ -992,12 +1043,12 @@ router.post(
       throw error;
     }
 
-    return c.redirect("/users?notice=created");
+    return c.redirect("/admin/users?notice=created");
   }),
 );
 
 router.get(
-  "/users/:id/edit",
+  "/admin/users/:id/edit",
   requireSuperAdmin((c) => {
     const id = Number(c.req.param("id"));
     const target = UserModel.findById(id);
@@ -1009,7 +1060,7 @@ router.get(
     }
     return renderUserForm(c, {
       title: "Edit user",
-      formAction: `/users/${target.id}`,
+      formAction: `/admin/users/${target.id}`,
       submitLabel: "Save changes",
       nameValue: target.name,
       usernameValue: target.username,
@@ -1021,7 +1072,7 @@ router.get(
 );
 
 router.post(
-  "/users/:id",
+  "/admin/users/:id",
   requireSuperAdmin(async (c) => {
     const id = Number(c.req.param("id"));
     const target = UserModel.findById(id);
@@ -1043,7 +1094,7 @@ router.post(
     if (!name) {
       return renderUserForm(c, {
         title: "Edit user",
-        formAction: `/users/${target.id}`,
+        formAction: `/admin/users/${target.id}`,
         submitLabel: "Save changes",
         nameValue: name,
         usernameValue: target.username,
@@ -1058,7 +1109,7 @@ router.post(
       if (password.length < 6) {
         return renderUserForm(c, {
           title: "Edit user",
-          formAction: `/users/${target.id}`,
+          formAction: `/admin/users/${target.id}`,
           submitLabel: "Save changes",
           nameValue: name,
           usernameValue: target.username,
@@ -1071,7 +1122,7 @@ router.post(
       if (password !== confirmPassword) {
         return renderUserForm(c, {
           title: "Edit user",
-          formAction: `/users/${target.id}`,
+          formAction: `/admin/users/${target.id}`,
           submitLabel: "Save changes",
           nameValue: name,
           usernameValue: target.username,
@@ -1087,12 +1138,12 @@ router.post(
 
     UserModel.updateProfile(target.id, { name });
 
-    return c.redirect("/users?notice=updated");
+    return c.redirect("/admin/users?notice=updated");
   }),
 );
 
 router.get(
-  "/users/:id/groups",
+  "/admin/users/:id/groups",
   requireSuperAdmin((c) => {
     const id = Number(c.req.param("id"));
     const target = UserModel.findById(id);
@@ -1105,7 +1156,7 @@ router.get(
 );
 
 router.post(
-  "/users/:id/groups",
+  "/admin/users/:id/groups",
   requireSuperAdmin(async (c) => {
     const id = Number(c.req.param("id"));
     const target = UserModel.findById(id);
@@ -1137,12 +1188,12 @@ router.post(
       }
     });
 
-    return c.redirect(`/users/${target.id}/groups?notice=groups`);
+    return c.redirect(`/admin/users/${target.id}/groups?notice=groups`);
   }),
 );
 
 router.post(
-  "/users/:id/delete",
+  "/admin/users/:id/delete",
   requireSuperAdmin(async (c) => {
     const body = await c.req.parseBody();
     if (!hasValidCsrfToken(c, body)) {
@@ -1157,18 +1208,18 @@ router.post(
       return renderUserList(c, { error: "Superadmin can only be managed via CLI." });
     }
     UserModel.remove(target.id);
-    return c.redirect("/users?notice=deleted");
+    return c.redirect("/admin/users?notice=deleted");
   }),
 );
 
-router.get("/logs", requireSuperAdmin((c) => renderLogList(c)));
+router.get("/admin/logs", requireSuperAdmin((c) => renderLogList(c)));
 
 router.get(
-  "/logs/new",
+  "/admin/logs/new",
   requireSuperAdmin((c) =>
     renderLogForm(c, {
       title: "Register log",
-      formAction: "/logs",
+      formAction: "/admin/logs",
       submitLabel: "Create log",
       tailLinesValue: DEFAULT_TAIL_LINES,
       allowClear: false,
@@ -1206,7 +1257,7 @@ const getAuthorizedLog = (c) => {
 };
 
 router.post(
-  "/logs",
+  "/admin/logs",
   requireSuperAdmin(async (c) => {
     const body = await c.req.parseBody();
     if (!hasValidCsrfToken(c, body)) {
@@ -1222,7 +1273,7 @@ router.post(
     if (!name || !filePath || tailLines === null) {
       return renderLogForm(c, {
         title: "Register log",
-        formAction: "/logs",
+        formAction: "/admin/logs",
         submitLabel: "Create log",
         nameValue: name,
         descriptionValue: description,
@@ -1237,7 +1288,7 @@ router.post(
     if (groupId !== null && !GroupModel.findById(groupId)) {
       return renderLogForm(c, {
         title: "Register log",
-        formAction: "/logs",
+        formAction: "/admin/logs",
         submitLabel: "Create log",
         nameValue: name,
         descriptionValue: description,
@@ -1260,12 +1311,12 @@ router.post(
       createdByUserId: currentUser?.id ?? null,
     });
 
-    return c.redirect("/logs?notice=created");
+    return c.redirect("/admin/logs?notice=created");
   }),
 );
 
 router.get(
-  "/logs/:id/edit",
+  "/admin/logs/:id/edit",
   requireSuperAdmin((c) => {
     const id = Number(c.req.param("id"));
     const log = LogModel.findById(id);
@@ -1274,7 +1325,7 @@ router.get(
     }
     return renderLogForm(c, {
       title: "Edit log",
-      formAction: `/logs/${log.id}`,
+      formAction: `/admin/logs/${log.id}`,
       submitLabel: "Save changes",
       nameValue: log.name,
       descriptionValue: log.description,
@@ -1287,7 +1338,7 @@ router.get(
 );
 
 router.post(
-  "/logs/:id",
+  "/admin/logs/:id",
   requireSuperAdmin(async (c) => {
     const id = Number(c.req.param("id"));
     const log = LogModel.findById(id);
@@ -1308,7 +1359,7 @@ router.post(
     if (!name || !filePath || tailLines === null) {
       return renderLogForm(c, {
         title: "Edit log",
-        formAction: `/logs/${log.id}`,
+        formAction: `/admin/logs/${log.id}`,
         submitLabel: "Save changes",
         nameValue: name,
         descriptionValue: description,
@@ -1322,7 +1373,7 @@ router.post(
     if (groupId !== null && !GroupModel.findById(groupId)) {
       return renderLogForm(c, {
         title: "Edit log",
-        formAction: `/logs/${log.id}`,
+        formAction: `/admin/logs/${log.id}`,
         submitLabel: "Save changes",
         nameValue: name,
         descriptionValue: description,
@@ -1343,12 +1394,12 @@ router.post(
       groupId,
     });
 
-    return c.redirect("/logs?notice=updated");
+    return c.redirect("/admin/logs?notice=updated");
   }),
 );
 
 router.post(
-  "/logs/:id/delete",
+  "/admin/logs/:id/delete",
   requireSuperAdmin(async (c) => {
     const body = await c.req.parseBody();
     if (!hasValidCsrfToken(c, body)) {
@@ -1360,7 +1411,7 @@ router.post(
       return renderLogList(c, { error: "Log entry not found." });
     }
     LogModel.remove(id);
-    return c.redirect("/logs?notice=deleted");
+    return c.redirect("/admin/logs?notice=deleted");
   }),
 );
 

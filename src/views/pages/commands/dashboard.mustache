@@ -1,117 +1,72 @@
 <!--
-  Unified Dashboard — displays both log cards and command cards grouped by project.
-  Logs section: clickable cards linking to the log viewer.
-  Commands section: half-width cards (col-md-6) with Execute button that opens
-  a Bootstrap confirmation modal. Execution is submitted via AJAX, result polled.
-  History button is only visible to superadmins.
+  Command Runner Dashboard — grouped command cards with execute modal.
+  Same pattern as log dashboard: commands grouped by project, clickable cards.
+  Each card opens a Bootstrap modal for confirmation + optional password re-auth.
+  Execution is submitted via AJAX, result polled and displayed in the modal.
 -->
 <section class="mb-4">
-  <p class="text-secondary mb-1">Welcome back,</p>
+  <p class="text-secondary mb-1">Command Runner</p>
   <h1 class="h4 fw-semibold">{{userName}}</h1>
 </section>
 
-<!-- ===== LOGS SECTION ===== -->
-{{#hasLogs}}
-<section class="mb-4">
-  <h2 class="h5 fw-semibold mb-3 text-uppercase text-secondary">&#128451; Logs</h2>
-  {{#logGroups}}
-  <div class="mb-4">
-    <h3 class="h6 fw-semibold mb-2">{{groupName}}</h3>
-    {{#groupDescription}}
-    <p class="text-secondary small mb-2">{{groupDescription}}</p>
-    {{/groupDescription}}
+{{#hasCommands}}
+  {{#dashboardGroups}}
+  <section class="mb-4">
+    <h2 class="h5 fw-semibold mb-3">{{groupName}}</h2>
     <div class="row g-3">
-      {{#logs}}
+      {{#commands}}
       <div class="col-12">
-        <div class="card-lite p-3 log-card" data-log-url="{{logUrl}}" role="link" tabindex="0">
+        <div class="card-lite p-3">
           <div class="row gy-2 align-items-center">
-            <div class="col-12 col-md-5">
+            <div class="col-12 col-md-6">
               <div class="fw-semibold">{{name}}</div>
               {{#description}}
               <div class="text-secondary small">{{description}}</div>
               {{/description}}
+              <div class="mt-1">
+                <span class="badge bg-light text-dark">{{serverName}}</span>
+                {{#passwordRequired}}
+                <span class="badge bg-warning text-dark">Re-auth required</span>
+                {{/passwordRequired}}
+                {{^isActive}}
+                <span class="badge bg-secondary">Disabled</span>
+                {{/isActive}}
+              </div>
             </div>
-            <div class="col-12 col-md-5 text-secondary small">
-              <code>{{filePath}}</code>
-            </div>
-            <div class="col-12 col-md-2 d-none d-md-flex justify-content-end">
-              <a style="float:right !important" class="btn btn-primary btn-sm" href="{{logUrl}}">View log</a>
-            </div>
-          </div>
-        </div>
-      </div>
-      {{/logs}}
-    </div>
-  </div>
-  {{/logGroups}}
-</section>
-{{/hasLogs}}
-
-<!-- ===== COMMANDS SECTION ===== -->
-{{#hasCommands}}
-<section class="mb-4">
-  <h2 class="h5 fw-semibold mb-3 text-uppercase text-secondary">&#9889; Commands</h2>
-  {{#commandGroups}}
-  <div class="mb-4">
-    <h3 class="h6 fw-semibold mb-2">{{groupName}}</h3>
-    <div class="row g-3">
-      {{#commands}}
-      <div class="col-12 col-md-6">
-        <div class="card-lite p-3 h-100 d-flex flex-column justify-content-between">
-          <div>
-            <div class="fw-semibold mb-1">{{name}}</div>
-            {{#description}}
-            <div class="text-secondary small mb-2">{{description}}</div>
-            {{/description}}
-            <div class="mb-2">
-              <span class="badge bg-light text-dark">{{serverName}}</span>
-              {{#passwordRequired}}
-              <span class="badge bg-warning text-dark">Re-auth</span>
-              {{/passwordRequired}}
-              {{^isActive}}
-              <span class="badge bg-secondary">Disabled</span>
+            <div class="col-12 col-md-6 text-md-end">
+              {{#isActive}}
+              <button
+                type="button"
+                class="btn btn-primary"
+                data-bs-toggle="modal"
+                data-bs-target="#executeModal"
+                data-command-id="{{id}}"
+                data-command-name="{{name}}"
+                data-command-description="{{description}}"
+                data-password-required="{{passwordRequired}}"
+              >Execute</button>
               {{/isActive}}
+              {{^isActive}}
+              <button class="btn btn-secondary" disabled>Disabled</button>
+              {{/isActive}}
+              <a href="/commands/{{id}}/history" class="btn btn-outline-secondary btn-sm ms-1">History</a>
             </div>
-          </div>
-          <div class="d-flex gap-2 flex-wrap mt-auto">
-            {{#isActive}}
-            <button
-              type="button"
-              class="btn btn-primary btn-sm"
-              data-bs-toggle="modal"
-              data-bs-target="#executeModal"
-              data-command-id="{{id}}"
-              data-command-name="{{name}}"
-              data-command-description="{{description}}"
-              data-password-required="{{passwordRequired}}"
-            >Execute</button>
-            {{/isActive}}
-            {{^isActive}}
-            <button class="btn btn-secondary btn-sm" disabled>Disabled</button>
-            {{/isActive}}
-            {{#superAdminNav}}
-            <a class="btn btn-outline-secondary btn-sm" href="/commands/{{id}}/history">History</a>
-            {{/superAdminNav}}
           </div>
         </div>
       </div>
       {{/commands}}
     </div>
-  </div>
-  {{/commandGroups}}
-</section>
+  </section>
+  {{/dashboardGroups}}
 {{/hasCommands}}
 
-<!-- ===== EMPTY STATE ===== -->
-{{^hasLogs}}
 {{^hasCommands}}
   <section class="card-lite p-4 text-center text-secondary">
-    <p class="mb-0">No logs or commands available for your account yet.</p>
+    <p class="mb-0">No commands available for your account yet.</p>
   </section>
 {{/hasCommands}}
-{{/hasLogs}}
 
-<!-- ===== Execute Confirmation Modal (shared with command dashboard pattern) ===== -->
+<!-- Execute Confirmation Modal -->
 <div class="modal fade" id="executeModal" tabindex="-1" aria-labelledby="executeModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
@@ -123,14 +78,17 @@
         <div id="executeFormSection">
           <p class="fw-semibold mb-1" id="executeCommandName"></p>
           <p class="text-secondary small mb-3" id="executeCommandDescription"></p>
+
           <div class="alert alert-warning d-flex align-items-center gap-2 mb-3" role="alert">
             <span>&#9888;</span>
             <span>You are about to execute a shell command on the target server. This action is logged for audit.</span>
           </div>
+
           <div id="passwordSection" class="mb-3 d-none">
             <label for="reauthPassword" class="form-label small text-uppercase text-secondary">Your password (required for this command)</label>
             <input type="password" id="reauthPassword" class="form-control" autocomplete="current-password" />
           </div>
+
           <div id="executionStatus" class="d-none">
             <div id="statusSpinner" class="d-flex align-items-center gap-2 mb-3">
               <div class="spinner-border spinner-border-sm" role="status"></div>
@@ -181,9 +139,12 @@
 
       cmdNameEl.textContent = cmdName;
       cmdDescEl.textContent = cmdDesc;
+
+      // Show/hide password field
       passwordSection.classList.toggle("d-none", !needsPassword);
       if (passwordInput) passwordInput.value = "";
 
+      // Reset UI state
       formSection.classList.remove("d-none");
       statusSection.classList.add("d-none");
       statusSpinner.classList.remove("d-none");
@@ -201,7 +162,7 @@
       }
     });
 
-    // Submit execution via AJAX
+    // Submit execution
     const submitExecution = async () => {
       if (!currentCommandId) return;
 
@@ -217,6 +178,7 @@
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: body.toString(),
         });
+
         const data = await response.json();
 
         if (data.error) {
@@ -251,28 +213,4 @@
       }
     });
   })();
-</script>
-
-<script>
-  // Mobile log-card click navigation (unchanged)
-  const mobileMatcher = window.matchMedia("(max-width: 767px)");
-  const enableCardNavigation = () => {
-    document.querySelectorAll(".log-card").forEach((card) => {
-      card.dataset.mobileHandled = "true";
-      const handler = () => {
-        if (!mobileMatcher.matches) return;
-        const url = card.getAttribute("data-log-url");
-        if (url) window.location.href = url;
-      };
-      card.addEventListener("click", handler);
-      card.addEventListener("keypress", (event) => {
-        if (!mobileMatcher.matches) return;
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          handler();
-        }
-      });
-    });
-  };
-  enableCardNavigation();
 </script>

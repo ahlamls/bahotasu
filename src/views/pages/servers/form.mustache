@@ -1,0 +1,115 @@
+<!--
+  Server Form — create/edit SSH/local execution target (superadmin only).
+  Credential (private key or password) is encrypted before storage.
+  "This Server" is read-only for host/port/auth fields.
+-->
+<section class="mb-4">
+  <p class="text-secondary small text-uppercase mb-1">Administration</p>
+  <h1 class="h4 fw-semibold">{{title}}</h1>
+</section>
+
+{{#error}}
+<div class="alert alert-danger" role="alert">{{error}}</div>
+{{/error}}
+
+<div class="card-lite p-4">
+  <form method="post" action="{{formAction}}" class="d-grid gap-3">
+    <input type="hidden" name="_csrf" value="{{csrfToken}}" />
+
+    <div class="row g-3">
+      <div class="col-12 col-md-6">
+        <label class="form-label small text-uppercase text-secondary" for="name">Server name</label>
+        <input type="text" id="name" name="name" class="form-control" value="{{nameValue}}" required maxlength="200" />
+      </div>
+      <div class="col-12 col-md-3">
+        <label class="form-label small text-uppercase text-secondary" for="host">Host</label>
+        <input
+          type="text"
+          id="host"
+          name="host"
+          class="form-control"
+          value="{{hostValue}}"
+          {{#isLocal}}readonly disabled{{/isLocal}}
+          {{^isLocal}}required{{/isLocal}}
+          placeholder="e.g. 192.168.1.10"
+        />
+      </div>
+      <div class="col-12 col-md-3">
+        <label class="form-label small text-uppercase text-secondary" for="port">Port</label>
+        <input
+          type="number"
+          id="port"
+          name="port"
+          class="form-control"
+          value="{{portValue}}"
+          min="1"
+          max="65535"
+          {{#isLocal}}readonly disabled{{/isLocal}}
+        />
+      </div>
+    </div>
+
+    <div class="row g-3">
+      <div class="col-12 col-md-6">
+        <label class="form-label small text-uppercase text-secondary" for="authType">Authentication</label>
+        <select id="authType" name="authType" class="form-select" {{#isLocal}}disabled{{/isLocal}}>
+          <option value="password" {{#authTypeValue}}password{{/authTypeValue}}>SSH Password</option>
+          <option value="key" {{#authTypeValue}}key{{/authTypeValue}}>SSH Private Key</option>
+          <option value="local" {{#authTypeValue}}local{{/authTypeValue}}>Local</option>
+        </select>
+      </div>
+    </div>
+
+    {{^isLocal}}
+    <div id="credentialSection">
+      <label class="form-label small text-uppercase text-secondary" for="credential">
+        <span class="credential-label">SSH Password</span>
+      </label>
+      <textarea
+        id="credential"
+        name="credential"
+        rows="4"
+        class="form-control font-monospace"
+        placeholder="{{#isEdit}}Leave blank to keep current.{{/isEdit}}{{^isEdit}}Enter SSH credential.{{/isEdit}}"
+      ></textarea>
+      {{#isEdit}}
+      <div class="form-text">Leave blank to keep the current credential.</div>
+      {{/isEdit}}
+    </div>
+    {{/isLocal}}
+
+    <div class="d-flex justify-content-between flex-wrap gap-2">
+      <a href="/admin/servers" class="btn btn-outline-secondary">Cancel</a>
+      <button type="submit" class="btn btn-primary">{{submitLabel}}</button>
+    </div>
+  </form>
+</div>
+
+{{^isLocal}}
+<script>
+  // Toggle credential label based on auth type selection
+  (() => {
+    const authSelect = document.getElementById("authType");
+    const credLabel = document.querySelector(".credential-label");
+    const credTextarea = document.getElementById("credential");
+
+    const updateLabel = () => {
+      const value = authSelect ? authSelect.value : "password";
+      if (credLabel) {
+        credLabel.textContent = value === "key" ? "SSH Private Key (PEM)" : "SSH Password";
+      }
+      if (credTextarea) {
+        credTextarea.placeholder =
+          value === "key"
+            ? "Paste your private key in PEM format..."
+            : "Enter SSH password...";
+      }
+    };
+
+    if (authSelect) {
+      authSelect.addEventListener("change", updateLabel);
+      updateLabel();
+    }
+  })();
+</script>
+{{/isLocal}}

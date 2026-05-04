@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { apiRoutes } from "./routes/api/index.js";
 import { webRoutes } from "./routes/web/index.js";
+import { commandRunnerRoutes } from "./routes/web/commandRunner.js";
 
 const registerCommonRoutes = (app) => {
   app.get("/healthz", (c) =>
@@ -16,6 +17,7 @@ export const buildApp = () => {
 
   registerCommonRoutes(app);
   app.route("/api", apiRoutes);
+  app.route("/", commandRunnerRoutes);
   app.route("/", webRoutes);
 
   return app;

@@ -3,7 +3,7 @@
     <p class="text-secondary mb-1 small text-uppercase">Administration</p>
     <h1 class="h4 fw-semibold mb-0">Group management</h1>
   </div>
-  <a class="btn btn-primary" href="/groups/new">Create group</a>
+  <a class="btn btn-primary" href="/admin/groups/new">Create group</a>
 </section>
 
 {{#notice}}
@@ -34,8 +34,8 @@
         <td><code>{{slug}}</code></td>
         <td>{{description}}</td>
         <td class="text-end">
-          <a class="btn btn-outline-secondary btn-sm" href="/groups/{{id}}/edit">Edit</a>
-          <form method="post" action="/groups/{{id}}/delete" class="d-inline" onsubmit="return confirm('Delete this group? Logs tied to it will become ungrouped.');">
+          <a class="btn btn-outline-secondary btn-sm" href="/admin/groups/{{id}}/edit">Edit</a>
+          <form method="post" action="/admin/groups/{{id}}/delete" class="d-inline" onsubmit="return confirm('Delete this group? Logs tied to it will become ungrouped.');">
             <input type="hidden" name="_csrf" value="{{csrfToken}}" />
             <button class="btn btn-outline-danger btn-sm" type="submit">Delete</button>
           </form>

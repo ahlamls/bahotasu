@@ -1,0 +1,111 @@
+<!--
+  Server List — superadmin view for managing SSH/local execution targets.
+  Shows all servers with their connection details and actions.
+  "This Server" (local) has delete button hidden.
+-->
+<section class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+  <div>
+    <p class="text-secondary mb-1 small text-uppercase">Administration</p>
+    <h1 class="h4 fw-semibold mb-0">Server management</h1>
+  </div>
+  <a class="btn btn-primary" href="/admin/servers/new">Add server</a>
+</section>
+
+{{#notice}}
+<div class="alert alert-success" role="alert">{{notice}}</div>
+{{/notice}}
+{{#error}}
+<div class="alert alert-danger" role="alert">{{error}}</div>
+{{/error}}
+
+<div class="table-responsive card-lite">
+  <table class="table align-middle mb-0">
+    <thead>
+      <tr>
+        <th scope="col">Name</th>
+        <th scope="col">Host</th>
+        <th scope="col">Port</th>
+        <th scope="col">Auth</th>
+        <th scope="col">Status</th>
+        <th scope="col" class="text-end">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#servers}}
+      <tr>
+        <td>
+          <div class="fw-semibold">{{name}}</div>
+        </td>
+        <td><code>{{hostLabel}}</code></td>
+        <td>{{port}}</td>
+        <td>{{authTypeLabel}}</td>
+        <td>
+          <button
+            type="button"
+            class="btn btn-outline-secondary btn-sm test-connection-btn"
+            data-server-id="{{id}}"
+            data-server-name="{{name}}"
+          >Test</button>
+          <span class="ms-2 small test-result-{{id}}"></span>
+        </td>
+        <td class="text-end">
+          <div class="d-flex flex-wrap gap-2 justify-content-end">
+            <a class="btn btn-outline-secondary btn-sm" href="/admin/servers/{{id}}/edit">Edit</a>
+            {{^isLocal}}
+            <form method="post" action="/admin/servers/{{id}}/delete" onsubmit="return confirm('Delete this server? Commands referencing it will become unassigned.');">
+              <input type="hidden" name="_csrf" value="{{csrfToken}}" />
+              <button class="btn btn-outline-danger btn-sm" type="submit">Delete</button>
+            </form>
+            {{/isLocal}}
+          </div>
+        </td>
+      </tr>
+      {{/servers}}
+      {{^servers}}
+      <tr>
+        <td colspan="6" class="text-center text-secondary py-4">No servers found.</td>
+      </tr>
+      {{/servers}}
+    </tbody>
+  </table>
+</div>
+
+<script>
+  // Test server connection via AJAX
+  (() => {
+    const csrfToken = "{{csrfToken}}";
+    document.querySelectorAll(".test-connection-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const serverId = btn.getAttribute("data-server-id");
+        const statusEl = document.querySelector(`.test-result-${serverId}`);
+        if (!statusEl) return;
+
+        statusEl.textContent = "Testing...";
+        statusEl.className = "ms-2 small text-muted test-result-" + serverId;
+
+        btn.disabled = true;
+
+        try {
+          const body = new URLSearchParams();
+          body.append("_csrf", csrfToken);
+          const response = await fetch(`/admin/servers/${serverId}/test`, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: body.toString(),
+          });
+          const data = await response.json();
+          statusEl.textContent = data.message;
+          statusEl.className =
+            "ms-2 small " +
+            (data.success ? "text-success" : "text-danger") +
+            " test-result-" + serverId;
+        } catch (err) {
+          statusEl.textContent = "Request failed.";
+          statusEl.className = "ms-2 small text-danger test-result-" + serverId;
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+  })();
+</script>

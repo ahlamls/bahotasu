@@ -1,0 +1,177 @@
+<!--
+  Execution Viewer — dedicated page for viewing a command execution's live status.
+  Same pattern as the log viewer: header with metadata, control bar with
+  auto-refresh/auto-scroll toggles, and a textarea that polls for output.
+  Pending/running executions show a spinner; completed/failed show output or error.
+-->
+<section class="mb-4">
+  <p class="text-secondary small text-uppercase mb-1">Command Execution · #{{executionId}}</p>
+  <h1 class="h4 fw-semibold mb-1">{{commandName}}</h1>
+  {{#commandDescription}}
+  <p class="text-secondary mb-1">{{commandDescription}}</p>
+  {{/commandDescription}}
+</section>
+
+<div class="card-lite p-3 mb-3">
+  <div class="d-flex flex-wrap gap-2 align-items-center">
+    <button id="refreshBtn" class="btn btn-primary btn-sm">Refresh</button>
+    <a href="/dashboard" class="btn btn-outline-secondary btn-sm">Dashboard</a>
+    <a href="/commands" class="btn btn-outline-secondary btn-sm">Commands</a>
+    <div class="form-check form-switch">
+      <input class="form-check-input" type="checkbox" role="switch" id="autoRefresh" checked>
+      <label class="form-check-label" for="autoRefresh">Auto refresh</label>
+    </div>
+    <div class="form-check form-switch">
+      <input class="form-check-input" type="checkbox" role="switch" id="autoScroll" checked>
+      <label class="form-check-label" for="autoScroll">Auto scroll</label>
+    </div>
+  </div>
+</div>
+
+<div id="loadingIndicator" class="d-flex align-items-center gap-2 mb-3">
+  <div class="spinner-border spinner-border-sm" role="status"></div>
+  <span id="loadingText" class="text-secondary">Waiting for execution to start...</span>
+</div>
+
+<textarea id="executionOutput" class="form-control" rows="22" readonly></textarea>
+
+<div class="text-secondary small mt-2 d-flex justify-content-between flex-wrap gap-2">
+  <span id="statusLine">Idle</span>
+  <span>Poll interval: 2s</span>
+</div>
+
+<script>
+  (() => {
+    const commandId = {{commandId}};
+    const executionId = {{executionId}};
+    const endpoint = `/commands/${commandId}/executions/${executionId}`;
+
+    const textarea = document.getElementById("executionOutput");
+    const refreshBtn = document.getElementById("refreshBtn");
+    const autoRefresh = document.getElementById("autoRefresh");
+    const autoScrollToggle = document.getElementById("autoScroll");
+    const statusLine = document.getElementById("statusLine");
+    const loadingIndicator = document.getElementById("loadingIndicator");
+    const loadingText = document.getElementById("loadingText");
+
+    const STORAGE_KEYS = {
+      autoRefresh: "bahotasu_cmd_auto_refresh",
+      autoScroll: "bahotasu_cmd_auto_scroll",
+    };
+
+    const readBool = (key, fallback) => {
+      try {
+        const raw = localStorage.getItem(key);
+        if (raw === null) return fallback;
+        return raw === "1";
+      } catch (_) { return fallback; }
+    };
+    const writeBool = (key, value) => {
+      try { localStorage.setItem(key, value ? "1" : "0"); } catch (_) {}
+    };
+
+    const POLL_INTERVAL = 2000;
+    let timer = null;
+    let hasCompleted = false;
+
+    const setStatus = (text) => { statusLine.textContent = text; };
+    const scrollToBottom = () => {
+      if (autoScrollToggle.checked) {
+        textarea.scrollTop = textarea.scrollHeight;
+      }
+    };
+
+    const fetchStatus = async () => {
+      setStatus("Polling...");
+      try {
+        const response = await fetch(endpoint);
+        const data = await response.json();
+
+        if (data.error) {
+          textarea.value = `Error: ${data.error}`;
+          loadingIndicator.classList.add("d-none");
+          stopAuto();
+          setStatus("Error");
+          return;
+        }
+
+        if (data.status === "completed") {
+          textarea.value = data.output || "(no output)";
+          loadingIndicator.classList.add("d-none");
+          scrollToBottom();
+          setStatus(`Completed (exit code: ${data.exit_code ?? "N/A"})`);
+          stopAuto();
+          hasCompleted = true;
+        } else if (data.status === "failed") {
+          textarea.value = data.output || "";
+          textarea.value += `\n\nError: ${data.error_summary || "Unknown error"}`;
+          loadingIndicator.classList.add("d-none");
+          scrollToBottom();
+          setStatus("Failed");
+          stopAuto();
+          hasCompleted = true;
+        } else if (data.status === "running") {
+          loadingText.textContent = "Command is running...";
+          loadingIndicator.classList.remove("d-none");
+          setStatus("Running");
+        } else if (data.status === "pending") {
+          loadingText.textContent = "Waiting for execution to start...";
+          loadingIndicator.classList.remove("d-none");
+          setStatus("Queued");
+        }
+      } catch (err) {
+        textarea.value = `Network error: ${err.message}`;
+        loadingIndicator.classList.add("d-none");
+        stopAuto();
+        setStatus("Polling error");
+      }
+    };
+
+    const startAuto = () => {
+      stopAuto();
+      if (autoRefresh.checked && !hasCompleted) {
+        fetchStatus();
+        timer = setInterval(() => {
+          if (hasCompleted) {
+            stopAuto();
+            return;
+          }
+          fetchStatus();
+        }, POLL_INTERVAL);
+      }
+    };
+
+    const stopAuto = () => {
+      if (timer) { clearInterval(timer); timer = null; }
+    };
+
+    refreshBtn.addEventListener("click", () => {
+      hasCompleted = false;
+      fetchStatus();
+      if (autoRefresh.checked) startAuto();
+    });
+
+    autoRefresh.addEventListener("change", () => {
+      writeBool(STORAGE_KEYS.autoRefresh, autoRefresh.checked);
+      if (autoRefresh.checked) {
+        hasCompleted = false;
+        startAuto();
+      } else {
+        stopAuto();
+        setStatus("Auto refresh disabled.");
+      }
+    });
+
+    autoScrollToggle.addEventListener("change", () => {
+      writeBool(STORAGE_KEYS.autoScroll, autoScrollToggle.checked);
+    });
+
+    autoRefresh.checked = readBool(STORAGE_KEYS.autoRefresh, true);
+    autoScrollToggle.checked = readBool(STORAGE_KEYS.autoScroll, true);
+
+    // Initial fetch + start auto
+    fetchStatus().then(() => {
+      if (autoRefresh.checked && !hasCompleted) startAuto();
+    });
+  })();
+</script>

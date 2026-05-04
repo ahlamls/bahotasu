@@ -3,7 +3,7 @@
     <p class="text-secondary mb-1 small text-uppercase">Administration</p>
     <h1 class="h4 fw-semibold mb-0">Logs management</h1>
   </div>
-  <a class="btn btn-primary" href="/logs/new">Register log</a>
+  <a class="btn btn-primary" href="/admin/logs/new">Register log</a>
 </section>
 
 {{#notice}}
@@ -42,8 +42,8 @@
         <td><code>{{filePath}}</code></td>
         <td class="text-end">
           <div class="d-flex flex-wrap gap-2 justify-content-end">
-            <a class="btn btn-outline-secondary btn-sm" href="/logs/{{id}}/edit">Edit</a>
-            <form method="post" action="/logs/{{id}}/delete" onsubmit="return confirm('Delete this log?');">
+            <a class="btn btn-outline-secondary btn-sm" href="/admin/logs/{{id}}/edit">Edit</a>
+            <form method="post" action="/admin/logs/{{id}}/delete" onsubmit="return confirm('Delete this log?');">
               <input type="hidden" name="_csrf" value="{{csrfToken}}" />
               <button class="btn btn-outline-danger btn-sm" type="submit">Delete</button>
             </form>

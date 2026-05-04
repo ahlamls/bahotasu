@@ -1,0 +1,89 @@
+<!--
+  Command Execution History — per-command or all-execution history table.
+  Used by both /commands/:id/history and /commands/history routes.
+  For superadmins, includes filter controls and all-user visibility.
+-->
+<section class="mb-4">
+  <h1 class="h4 fw-semibold mb-0">{{pageTitle}}</h1>
+  {{#commandName}}
+  <p class="text-secondary mb-0">{{commandName}}</p>
+  {{/commandName}}
+</section>
+
+{{#error}}
+<div class="alert alert-danger" role="alert">{{error}}</div>
+{{/error}}
+
+{{#isSuperAdmin}}
+<div class="card-lite p-3 mb-4">
+  <form method="get" action="/commands/history" class="row g-2 align-items-end">
+    {{#allCommands}}
+    <div class="col-12 col-md-4">
+      <label class="form-label small text-uppercase text-secondary">Command</label>
+      <select name="commandId" class="form-select">
+        <option value="">All commands</option>
+        {{#allCommands}}
+        <option value="{{id}}" {{#selected}}selected{{/selected}}>{{name}}</option>
+        {{/allCommands}}
+      </select>
+    </div>
+    {{/allCommands}}
+    <div class="col-12 col-md-3">
+      <label class="form-label small text-uppercase text-secondary">Status</label>
+      <select name="status" class="form-select">
+        <option value="">All statuses</option>
+        <option value="pending" {{#statusFilter}}pending{{/statusFilter}}>Pending</option>
+        <option value="running" {{#statusFilter}}running{{/statusFilter}}>Running</option>
+        <option value="completed" {{#statusFilter}}completed{{/statusFilter}}>Completed</option>
+        <option value="failed" {{#statusFilter}}failed{{/statusFilter}}>Failed</option>
+      </select>
+    </div>
+    <div class="col-12 col-md-2 d-flex align-items-end">
+      <button type="submit" class="btn btn-outline-primary w-100">Filter</button>
+    </div>
+  </form>
+</div>
+{{/isSuperAdmin}}
+
+<div class="table-responsive card-lite">
+  <table class="table align-middle mb-0">
+    <thead>
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">Command</th>
+        <th scope="col">User</th>
+        <th scope="col">Status</th>
+        <th scope="col">Started</th>
+        <th scope="col">Completed</th>
+        <th scope="col">Exit code</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#executions}}
+      <tr>
+        <td>
+          <a href="/commands/{{commandId}}/executions/{{id}}/view" class="fw-semibold text-decoration-none">#{{id}}</a>
+        </td>
+        <td>
+          <div class="fw-semibold">{{commandName}}</div>
+          {{#commandId}}
+          <a href="/commands/{{commandId}}/history" class="text-secondary small">History</a>
+          {{/commandId}}
+        </td>
+        <td>{{userName}}</td>
+        <td>
+          <span class="badge {{statusBadge}}">{{status}}</span>
+        </td>
+        <td class="text-secondary small">{{startedAt}}</td>
+        <td class="text-secondary small">{{completedAt}}</td>
+        <td>{{exitCode}}</td>
+      </tr>
+      {{/executions}}
+      {{^hasExecutions}}
+      <tr>
+        <td colspan="7" class="text-center text-secondary py-4">No executions found.</td>
+      </tr>
+      {{/hasExecutions}}
+    </tbody>
+  </table>
+</div>
