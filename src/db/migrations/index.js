@@ -4,8 +4,17 @@ import { migration_003 } from "./003_logs_nullable_group.js";
 import { migration_004 } from "./004_log_description.js";
 import { migration_005 } from "./005_command_runner.js";
 import { migration_006 } from "./006_server_username.js";
+import { migration_007 } from "./007_logs_server_target.js";
 
-const migrations = [migration_001, migration_002, migration_003, migration_004, migration_005, migration_006];
+const migrations = [
+  migration_001,
+  migration_002,
+  migration_003,
+  migration_004,
+  migration_005,
+  migration_006,
+  migration_007,
+];
 
 const ensureMigrationTable = (db) => {
   db.exec(`

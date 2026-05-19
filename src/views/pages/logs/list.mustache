@@ -23,6 +23,7 @@
       <tr>
         <th scope="col">Name</th>
         <th scope="col">Group</th>
+        <th scope="col">Server</th>
         <th scope="col">Tail lines</th>
         <th scope="col">Allow truncate</th>
         <th scope="col">File path</th>
@@ -37,6 +38,8 @@
           <div class="text-secondary small">{{description}}</div>
         </td>
         <td>{{groupLabel}}</td>
+        <!-- Server label added by OpenAI Codex GPT-5 / 2026-05-19 to show where each log is read from. -->
+        <td>{{serverLabel}}</td>
         <td>{{tailLines}}</td>
         <td>{{#allowClear}}Yes{{/allowClear}}{{^allowClear}}No{{/allowClear}}</td>
         <td><code>{{filePath}}</code></td>
@@ -53,7 +56,7 @@
       {{/logs}}
       {{^logs}}
       <tr>
-        <td colspan="6" class="text-center text-secondary py-4">No logs registered yet.</td>
+        <td colspan="7" class="text-center text-secondary py-4">No logs registered yet.</td>
       </tr>
       {{/logs}}
     </tbody>

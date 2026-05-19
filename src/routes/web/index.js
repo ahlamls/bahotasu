@@ -1,5 +1,4 @@
 import crypto from "node:crypto";
-import { spawn } from "node:child_process";
 import { Hono } from "hono";
 import { renderPage } from "../../lib/viewEngine.js";
 import {
@@ -10,8 +9,14 @@ import {
   REMEMBER_COOKIE,
 } from "../../middleware/session.js";
 import { parseCookies } from "../../lib/cookies.js";
-import { UserModel, SessionModel, LogModel, UserGroupModel, GroupModel, CommandModel, USER_ROLES } from "../../models/index.js";
+import { UserModel, SessionModel, LogModel, UserGroupModel, GroupModel, CommandModel, ServerModel, USER_ROLES } from "../../models/index.js";
 import { verifyPassword, hashPassword } from "../../lib/password.js";
+import {
+  clearLogFile,
+  LOG_SEARCH_CONTEXT_LINES,
+  readLogTail,
+  searchLogWithContext,
+} from "../../services/logSource.service.js";
 
 const router = new Hono();
 
@@ -47,6 +52,9 @@ const navItems = [
   { key: "groups", label: "Group Management", href: "/admin/groups" },
   { key: "users", label: "User Management", href: "/admin/users" },
   { key: "logs", label: "Logs Management", href: "/admin/logs" },
+  // Server Management is its own menu because servers now back both remote logs and commands.
+  // Added by OpenAI Codex GPT-5 / 2026-05-19.
+  { key: "servers", label: "Server Management", href: "/admin/servers" },
   { key: "commands", label: "Commands Management", href: "/admin/commands" },
 ];
 
@@ -95,6 +103,7 @@ const buildDashboardGroups = (user) => {
       name: log.name,
       description: log.description || "",
       filePath: log.filePath,
+      serverName: log.serverName || "This Server",
       logUrl: `/logs/${log.id}/view`,
     };
     if (log.groupId) {
@@ -278,9 +287,6 @@ const parseTailLines = (value) => {
   return clamped;
 };
 
-const SEARCH_CONTEXT_LINES = 10;
-const SEARCH_OCCURRENCE_LIMIT = 5;
-
 const getCsrfToken = (c) => {
   const token = c.get("csrfToken");
   return typeof token === "string" ? token : "";
@@ -305,154 +311,6 @@ const hasValidCsrfToken = (c, body) => {
   const providedBuffer = Buffer.from(provided);
   if (expectedBuffer.length !== providedBuffer.length) return false;
   return crypto.timingSafeEqual(expectedBuffer, providedBuffer);
-};
-
-const runTail = (filePath, lines) =>
-  new Promise((resolve, reject) => {
-    const tail = spawn("tail", ["-n", String(lines), filePath], { stdio: ["ignore", "pipe", "pipe"] });
-    let out = "";
-    let err = "";
-    tail.stdout.on("data", (chunk) => {
-      out += chunk.toString();
-    });
-    tail.stderr.on("data", (chunk) => {
-      err += chunk.toString();
-    });
-    tail.on("close", (code) => {
-      if (code === 0) {
-        resolve(out);
-      } else {
-        reject(new Error(err || `tail exited with code ${code}`));
-      }
-    });
-  });
-
-const truncateFile = (filePath) =>
-  new Promise((resolve, reject) => {
-    const proc = spawn("truncate", ["-s", "0", filePath]);
-    proc.on("close", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`truncate exited with code ${code}`));
-    });
-  });
-
-const findLastMatchLineNumbers = (filePath, query, limit) =>
-  new Promise((resolve, reject) => {
-    const proc = spawn("grep", ["-F", "-n", "--", query, filePath], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    let stderr = "";
-    let remainder = "";
-    const lastMatches = [];
-
-    const pushMatch = (line) => {
-      const match = /^(\d+):/.exec(line);
-      if (!match) return;
-      lastMatches.push(Number(match[1]));
-      if (lastMatches.length > limit) {
-        lastMatches.shift();
-      }
-    };
-
-    proc.stdout.on("data", (chunk) => {
-      remainder += chunk.toString();
-      const lines = remainder.split("\n");
-      remainder = lines.pop() ?? "";
-      lines.forEach(pushMatch);
-    });
-
-    proc.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-
-    proc.on("close", (code) => {
-      if (remainder) {
-        pushMatch(remainder);
-      }
-      if (code === 0) {
-        resolve(lastMatches);
-        return;
-      }
-      if (code === 1) {
-        resolve([]);
-        return;
-      }
-      reject(new Error(stderr || `grep exited with code ${code}`));
-    });
-  });
-
-const readFileRange = (filePath, startLine, endLine) =>
-  new Promise((resolve, reject) => {
-    const proc = spawn("sed", ["-n", `${startLine},${endLine}p`, filePath], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let stdout = "";
-    let stderr = "";
-    proc.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-    proc.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-    proc.on("close", (code) => {
-      if (code === 0) {
-        resolve(stdout);
-      } else {
-        reject(new Error(stderr || `sed exited with code ${code}`));
-      }
-    });
-  });
-
-const formatSearchResultBlock = ({ filePath, query, lineNumber, context, occurrence, total }) => {
-  const lines = context.replace(/\n$/, "").split("\n");
-  const startLine = Math.max(1, lineNumber - SEARCH_CONTEXT_LINES);
-  const formattedLines = lines
-    .map((line, index) => {
-      const currentLine = startLine + index;
-      const marker = currentLine === lineNumber ? ">" : " ";
-      return `${marker} ${String(currentLine).padStart(7, " ")} | ${line}`;
-    })
-    .join("\n");
-
-  return [
-    `Occurrence ${occurrence}/${total}`,
-    `File: ${filePath}`,
-    `Match line: ${lineNumber}`,
-    `Query: ${query}`,
-    "----------------------------------------",
-    formattedLines || "(no content)",
-  ].join("\n");
-};
-
-const searchLogWithContext = async (filePath, query) => {
-  const matchLines = await findLastMatchLineNumbers(filePath, query, SEARCH_OCCURRENCE_LIMIT);
-  if (matchLines.length === 0) {
-    return { totalShown: 0, output: "" };
-  }
-
-  const sections = [];
-  for (let index = 0; index < matchLines.length; index += 1) {
-    const lineNumber = matchLines[index];
-    const startLine = Math.max(1, lineNumber - SEARCH_CONTEXT_LINES);
-    const endLine = lineNumber + SEARCH_CONTEXT_LINES;
-    const context = await readFileRange(filePath, startLine, endLine);
-    sections.push(
-      formatSearchResultBlock({
-        filePath,
-        query,
-        lineNumber,
-        context,
-        occurrence: index + 1,
-        total: matchLines.length,
-      }),
-    );
-  }
-
-  return {
-    totalShown: matchLines.length,
-    output: sections.join("\n\n========================================\n\n"),
-  };
 };
 
 const renderGroupList = (c, state = {}) => {
@@ -558,6 +416,7 @@ const renderLogList = (c, state = {}) => {
   const logs = LogModel.listAll().map((log) => ({
     ...log,
     groupLabel: log.groupName || "No group",
+    serverLabel: log.serverName || "This Server",
   }));
   const html = renderPage("pages/logs/list", {
     ...basePageData(user, { activeNav: "logs" }),
@@ -578,6 +437,19 @@ const renderLogForm = (c, state = {}) => {
     ...group,
     selected: selectedGroupId !== null && group.id === selectedGroupId,
   }));
+  const rawSelectedServerId =
+    state.serverId === undefined || state.serverId === null ? null : Number(state.serverId);
+  const allServers = ServerModel.listAll();
+  const selectedServer = allServers.find((server) => server.id === rawSelectedServerId);
+  // Treat the seeded local server the same as NULL so the form preserves the local default.
+  // Added by OpenAI Codex GPT-5 / 2026-05-19 for remote log target selection.
+  const selectedServerId =
+    selectedServer && !ServerModel.isLocalServer(selectedServer) ? selectedServer.id : null;
+  const servers = allServers.map((server) => ({
+    ...server,
+    isRemote: !ServerModel.isLocalServer(server),
+    selected: selectedServerId !== null && server.id === selectedServerId,
+  }));
   const html = renderPage("pages/logs/form", {
     ...basePageData(user, { activeNav: "logs" }),
     csrfToken: getCsrfToken(c),
@@ -590,6 +462,8 @@ const renderLogForm = (c, state = {}) => {
     filePathValue: state.filePathValue || "",
     tailLinesValue: state.tailLinesValue || DEFAULT_TAIL_LINES,
     allowClear: !!state.allowClear,
+    servers,
+    noServerSelected: selectedServerId === null,
     groups,
     noGroupSelected: selectedGroupId === null,
     error: state.error,
@@ -606,6 +480,7 @@ const renderLogSearchPage = (c, state = {}) => {
     logId: state.log?.id,
     logName: state.log?.name || "",
     filePath: state.log?.filePath || "",
+    serverLabel: state.log?.serverName || "This Server",
     viewerUrl: state.log ? `/logs/${state.log.id}/view` : "/dashboard",
     queryValue: state.queryValue || "",
     error: state.error,
@@ -1215,6 +1090,29 @@ const parseGroupId = (value) => {
   return Number.isFinite(num) ? num : null;
 };
 
+const parseServerId = (value) => {
+  if (value === undefined || value === null || value === "") return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+};
+
+/**
+ * Normalizes log server selection.
+ * NULL and the seeded local server both mean the existing local log reader.
+ * Added by OpenAI Codex GPT-5 / 2026-05-19 for per-log remote server targets.
+ */
+const resolveLogServerSelection = (serverId) => {
+  if (serverId === null) return { serverId: null };
+  const server = ServerModel.findById(serverId);
+  if (!server) {
+    return { error: "Selected target server does not exist." };
+  }
+  if (ServerModel.isLocalServer(server)) {
+    return { serverId: null };
+  }
+  return { serverId: server.id };
+};
+
 const allowClearFromBody = (raw) => {
   if (typeof raw === "string") {
     return ["1", "true", "on", "yes"].includes(raw.toLowerCase());
@@ -1251,6 +1149,8 @@ router.post(
     const tailLines = parseTailLines(body.tailLines ?? DEFAULT_TAIL_LINES);
     const allowClear = allowClearFromBody(body.allowClear);
     const groupId = parseGroupId(body.groupId);
+    const rawServerId = parseServerId(body.serverId);
+    const serverSelection = resolveLogServerSelection(rawServerId);
 
     if (!name || !filePath || tailLines === null) {
       return renderLogForm(c, {
@@ -1263,6 +1163,7 @@ router.post(
         tailLinesValue: tailLines || DEFAULT_TAIL_LINES,
         allowClear,
         groupId,
+        serverId: rawServerId,
         error: "Name, file path, and a valid tail line count are required.",
       });
     }
@@ -1278,7 +1179,24 @@ router.post(
         tailLinesValue: tailLines,
         allowClear,
         groupId,
+        serverId: rawServerId,
         error: "Selected group does not exist.",
+      });
+    }
+
+    if (serverSelection.error) {
+      return renderLogForm(c, {
+        title: "Register log",
+        formAction: "/admin/logs",
+        submitLabel: "Create log",
+        nameValue: name,
+        descriptionValue: description,
+        filePathValue: filePath,
+        tailLinesValue: tailLines,
+        allowClear,
+        groupId,
+        serverId: rawServerId,
+        error: serverSelection.error,
       });
     }
 
@@ -1290,6 +1208,7 @@ router.post(
       filePath,
       tailLines,
       allowClear,
+      serverId: serverSelection.serverId,
       createdByUserId: currentUser?.id ?? null,
     });
 
@@ -1315,6 +1234,7 @@ router.get(
       tailLinesValue: log.tailLines,
       allowClear: !!log.allowClear,
       groupId: log.groupId,
+      serverId: log.serverId,
     });
   }),
 );
@@ -1337,6 +1257,8 @@ router.post(
     const tailLines = parseTailLines(body.tailLines ?? log.tailLines);
     const allowClear = allowClearFromBody(body.allowClear);
     const groupId = parseGroupId(body.groupId);
+    const rawServerId = parseServerId(body.serverId);
+    const serverSelection = resolveLogServerSelection(rawServerId);
 
     if (!name || !filePath || tailLines === null) {
       return renderLogForm(c, {
@@ -1349,6 +1271,7 @@ router.post(
         tailLinesValue: tailLines || log.tailLines,
         allowClear,
         groupId,
+        serverId: rawServerId,
         error: "Name, file path, and a valid tail line count are required.",
       });
     }
@@ -1363,7 +1286,24 @@ router.post(
         tailLinesValue: tailLines,
         allowClear,
         groupId,
+        serverId: rawServerId,
         error: "Selected group does not exist.",
+      });
+    }
+
+    if (serverSelection.error) {
+      return renderLogForm(c, {
+        title: "Edit log",
+        formAction: `/admin/logs/${log.id}`,
+        submitLabel: "Save changes",
+        nameValue: name,
+        descriptionValue: description,
+        filePathValue: filePath,
+        tailLinesValue: tailLines,
+        allowClear,
+        groupId,
+        serverId: rawServerId,
+        error: serverSelection.error,
       });
     }
 
@@ -1374,6 +1314,7 @@ router.post(
       tailLines,
       allowClear,
       groupId,
+      serverId: serverSelection.serverId,
     });
 
     return c.redirect("/admin/logs?notice=updated");
@@ -1413,6 +1354,7 @@ router.get(
       groupLabel: log.groupName || "No group",
       groupDescription: log.groupDescription || "",
       filePath: log.filePath,
+      serverLabel: log.serverName || "This Server",
       tailLines: log.tailLines,
       allowClear: !!log.allowClear,
     });
@@ -1446,7 +1388,7 @@ router.get(
     }
 
     try {
-      const result = await searchLogWithContext(log.filePath, queryValue);
+      const result = await searchLogWithContext(log, queryValue);
       if (result.totalShown === 0) {
         return renderLogSearchPage(c, {
           log,
@@ -1460,7 +1402,7 @@ router.get(
         queryValue,
         output: result.output,
         totalShown: result.totalShown,
-        notice: `Showing last ${result.totalShown} occurrence(s) with ±${SEARCH_CONTEXT_LINES} lines.`,
+        notice: `Showing last ${result.totalShown} occurrence(s) with ±${LOG_SEARCH_CONTEXT_LINES} lines.`,
       });
     } catch (err) {
       return renderLogSearchPage(c, {
@@ -1478,7 +1420,7 @@ router.get(
     const { log, error } = getAuthorizedLog(c);
     if (error) return error;
     try {
-      const text = await runTail(log.filePath, log.tailLines);
+      const text = await readLogTail(log);
       return c.text(text, 200);
     } catch (err) {
       return c.text(`Failed to read log: ${err.message}`, 500);
@@ -1498,7 +1440,7 @@ router.post(
       return c.text("Clearing disabled for this log.", 403);
     }
     try {
-      await truncateFile(log.filePath);
+      await clearLogFile(log);
       return c.text("Log cleared.");
     } catch (err) {
       return c.text(`Failed to clear log: ${err.message}`, 500);

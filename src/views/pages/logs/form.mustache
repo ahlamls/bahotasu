@@ -12,6 +12,10 @@
 <div class="card-lite p-4">
   <form method="post" action="{{formAction}}" class="d-grid gap-3">
     <input type="hidden" name="_csrf" value="{{csrfToken}}" />
+    <!--
+      Target server selection added by OpenAI Codex GPT-5 / 2026-05-19.
+      Empty value stores logs.server_id as NULL so existing local log behavior remains unchanged.
+    -->
     <div class="row g-3">
       <div class="col-12 col-md-6">
         <label class="form-label small text-uppercase text-secondary" for="name">Name</label>
@@ -40,6 +44,18 @@
     </div>
 
     <div class="row g-3">
+      <div class="col-12 col-md-4">
+        <label class="form-label small text-uppercase text-secondary" for="serverId">Target server</label>
+        <select id="serverId" name="serverId" class="form-select">
+          <option value="" {{#noServerSelected}}selected{{/noServerSelected}}>This Server</option>
+          {{#servers}}
+          {{#isRemote}}
+          <option value="{{id}}" {{#selected}}selected{{/selected}}>{{name}}</option>
+          {{/isRemote}}
+          {{/servers}}
+        </select>
+        <div class="form-text">Remote servers are read over SSH using saved credentials.</div>
+      </div>
       <div class="col-12 col-md-4">
         <label class="form-label small text-uppercase text-secondary" for="tailLines">Tail lines</label>
         <input

@@ -4,7 +4,8 @@
   {{#description}}
   <p class="text-secondary mb-1">{{description}}</p>
   {{/description}}
-  <p class="text-secondary small mb-0">File: <code>{{filePath}}</code> · Tail {{tailLines}} lines</p>
+  <!-- Server label added by OpenAI Codex GPT-5 / 2026-05-19 so readers know whether content is local or SSH-backed. -->
+  <p class="text-secondary small mb-0">Server: <strong>{{serverLabel}}</strong> · File: <code>{{filePath}}</code> · Tail {{tailLines}} lines</p>
 </section>
 
 <div class="card-lite p-3 mb-3">

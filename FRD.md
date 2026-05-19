@@ -89,7 +89,7 @@ There are two roles in the system: **Superadmin** and **User**.
 | Execute commands from Command Runner | ✅ | ✅ |
 | View own execution history | ✅ | ✅ |
 | View all execution history | ✅ | ❌ |
-| Manage servers (CRUD + test connection) | ✅ | ❌ |
+| Manage servers used by remote logs and commands (CRUD + test connection) | ✅ | ❌ |
 | Manage commands (CRUD) | ✅ | ❌ |
 | Be created or edited via the UI | ❌ | ✅ |
 | Be created via the CLI seeder | ✅ | ❌ |
@@ -127,8 +127,8 @@ There are two roles in the system: **Superadmin** and **User**.
 │  └──────────────────────────────────────────┘   │
 │                                                  │
 │  ┌──────────────────────────────────────────┐   │
-│  │  Log I/O (tail, grep, sed, truncate      │   │
-│  │  via Node child_process)                 │   │
+│  │  Log I/O (local child_process or pooled  │   │
+│  │  SSH sessions for remote server logs)    │   │
 │  └──────────────────────────────────────────┘   │
 │                                                  │
 │  ┌──────────────────────────────────────────┐   │
@@ -144,7 +144,7 @@ There are two roles in the system: **Superadmin** and **User**.
 **Framework:** Hono (`@hono/node-server`)  
 **Database:** SQLite via `better-sqlite3`, auto-migrated on startup  
 **Views:** Mustache templates + Bootstrap 5  
-**Log I/O:** Native Unix commands (`tail`, `grep`, `sed`, `truncate`) via `child_process.spawn`  
+**Log I/O:** Native Unix commands (`tail`, `grep`, `sed`, `truncate`) via `child_process.spawn` for local logs, or `ssh2` pooled SSH sessions for remote logs  
 **Command Execution:** `child_process.spawn` (local) or `ssh2` npm package (remote SSH)  
 **Encryption:** AES‑256‑GCM via Node.js `crypto` for SSH credentials at rest  
 **Worker:** In‑process `setInterval` polling `command_executions` table every 1 second  
@@ -275,26 +275,30 @@ There are two roles in the system: **Superadmin** and **User**.
 #### FR-LOG-01 — List Logs (Admin)
 
 - `GET /logs` displays all registered log entries.
-- Each row shows: log name, description, file path, tail lines, group name, and allow-clear flag.
+- Each row shows: log name, description, file path, target server, tail lines, group name, and allow-clear flag.
 
 #### FR-LOG-02 — Register a Log
 
 - `GET /logs/new` renders the creation form.
 - `POST /logs` processes registration.
 - Required fields: **name**, **file path**, **tail lines**.
-- Optional fields: **description**, **group** (dropdown), **allow clear** (checkbox).
+- Optional fields: **description**, **group** (dropdown), **target server** (dropdown), **allow clear** (checkbox).
 - Validations:
   - Name and file path are required.
   - Tail lines must be a finite integer in the range **10–10,000**. Default is `1000`.
   - If a group is selected, it must exist in the database.
+  - If a remote target server is selected, it must exist in the `servers` table.
 - The log entry does not validate whether the file path actually exists at creation time; the viewer handles missing file errors at read time.
+- The default target is **This Server**, stored as `logs.server_id = NULL`, which preserves the existing local log flow.
+- Remote targets use the selected server's encrypted SSH credentials when reading, searching, or clearing the log.
 - `created_by_user_id` is stored as the creating superadmin's ID.
 
 #### FR-LOG-03 — Edit Log
 
 - `GET /logs/:id/edit` renders the edit form pre-populated with existing values.
-- `POST /logs/:id` updates: name, description, file path, tail lines, allow clear, group.
+- `POST /logs/:id` updates: name, description, file path, target server, tail lines, allow clear, group.
 - Group can be changed or cleared (set to no group / ungrouped).
+- Target server can be changed or cleared; clearing it returns the log to local **This Server** behavior.
 
 #### FR-LOG-04 — Delete Log
 
@@ -326,13 +330,14 @@ There are two roles in the system: **Superadmin** and **User**.
 #### FR-VIEWER-03 — Log View Page
 
 - `GET /logs/:id/view` renders the viewer page.
-- Displays: log name, description, group label, file path, tail line count.
+- Displays: log name, description, group label, target server, file path, tail line count.
 - The actual log content is **not** embedded in the page; it is loaded asynchronously.
 
 #### FR-VIEWER-04 — Log Content Fetch
 
 - `GET /logs/:id/content` streams the tail of the log file as plain text.
-- Uses the Unix `tail -n <tailLines> <filePath>` command via `child_process.spawn`.
+- Local logs use the Unix `tail -n <tailLines> <filePath>` command via `child_process.spawn`.
+- Remote logs use the selected server's pooled SSH connection and execute `tail -n <tailLines> -- <filePath>`.
 - Returns HTTP 500 with an error message if the file cannot be read.
 - This endpoint is called by the viewer page's JavaScript to populate the textarea.
 
@@ -352,7 +357,8 @@ There are two roles in the system: **Superadmin** and **User**.
 
 - `GET /logs/:id/search` renders the search interface.
 - Accepts query parameter `?q=<string>`.
-- Uses `grep -F -n` to perform a plain-text (non-regex) search across the full log file.
+- Local logs use `grep -F -n` to perform a plain-text (non-regex) search across the full log file.
+- Remote logs run the equivalent fixed-string `grep` and context reads over the selected server's pooled SSH connection.
 - Returns the **last 5 occurrences** of the search string.
 - Each result includes **±10 lines of context** around the match.
 - Results display line numbers, with the matching line marked with `>`.
@@ -364,7 +370,8 @@ There are two roles in the system: **Superadmin** and **User**.
 - `POST /logs/:id/clear` truncates the log file to zero bytes.
 - Only available if the log entry has `allow_clear = 1`.
 - CSRF protection is enforced.
-- Uses `truncate -s 0 <filePath>` via `child_process.spawn`.
+- Local logs use `truncate -s 0 <filePath>` via `child_process.spawn`.
+- Remote logs use `truncate -s 0 -- <filePath>` over the selected server's pooled SSH connection.
 - Returns HTTP 403 if clearing is disabled for that log.
 - The **Clear** button on the viewer page is only rendered when `allow_clear` is true.
 
@@ -400,7 +407,7 @@ There are two roles in the system: **Superadmin** and **User**.
 
 ### 5.7 Command Runner
 
-> All Server and Command CRUD routes require the **Superadmin** role.  
+> All Server Management and Command CRUD routes require the **Superadmin** role.  
 > Command execution and history viewing are accessible to all authenticated users with group-based access control.
 
 #### FR-ENC-01 — Encryption Key Auto-Generation
@@ -597,6 +604,7 @@ There are two roles in the system: **Superadmin** and **User**.
 | `file_path` | TEXT | Absolute or relative path to log file on server |
 | `tail_lines` | INTEGER | Range: 10–10,000; default 500 |
 | `allow_clear` | INTEGER | 0 = disabled, 1 = enabled |
+| `server_id` | INTEGER FK | Nullable; references `servers.id`; NULL = local This Server |
 | `created_by_user_id` | INTEGER FK | Nullable; references `users.id` |
 | `created_at` | TEXT | |
 | `updated_at` | TEXT | |
@@ -623,7 +631,7 @@ Unique constraint on `(user_id, group_id)`.
 | `created_at` | TEXT | |
 | `expires_at` | TEXT | |
 
-### Servers (Command Runner)
+### Servers (Shared Log + Command Targets)
 
 | Column | Type | Notes |
 |---|---|---|
@@ -747,6 +755,7 @@ Internal API routes exist under `/api` (referenced in `/src/routes/api/`) for fu
 | NFR-04 | Security | Role enforcement is applied at the route handler level, not only in the UI. |
 | NFR-05 | Performance | The server renders full HTML pages per request — no heavy SPA bundle. Pages should be fast on low-power machines. |
 | NFR-06 | Performance | Log content is fetched asynchronously; the viewer page does not block render on log I/O. |
+| NFR-06A | Performance | Remote log reads reuse a pooled SSH connection per server for repeated refresh/search/clear requests and close idle sessions after a short TTL. |
 | NFR-07 | Reliability | SQLite migrations run automatically on startup. The system should be bootable with an empty or missing database file. |
 | NFR-08 | Portability | The application must run on any Linux/macOS host with Node.js ≥ 18.17 and standard Unix utilities (`tail`, `grep`, `sed`, `truncate`). |
 | NFR-09 | Maintainability | No SPA framework, no transpiler, no build step. Source files are executed directly by Node.js with `"type": "module"`. |
@@ -761,12 +770,12 @@ Internal API routes exist under `/api` (referenced in `/src/routes/api/`) for fu
 
 ## 9. Constraints & Assumptions
 
-- **Single-host only.** The application reads log files from the local filesystem of the server it runs on. Remote log sources are not supported.
+- **Local and SSH log targets only.** The application reads local logs from the filesystem of the server it runs on, and remote logs from registered SSH servers. Remote log sources require reachable SSH access from the Bahotasu host.
 - **SQLite is the only database.** There is no provision for PostgreSQL, MySQL, or any other database engine.
 - **No email integration.** Password resets, invitations, and notifications are not supported. Superadmins must set initial passwords manually.
 - **No audit logging.** Actions taken in the UI (user creation, log deletion, etc.) are not tracked in a separate audit trail.
 - **Unix-only log I/O.** The system shells out to `tail`, `grep`, `sed`, and `truncate`. It is not compatible with Windows without a POSIX emulation layer.
-- **Log files must be accessible** by the OS user running the Node.js process. Permission errors are surfaced to the user as runtime errors in the viewer.
+- **Log files must be accessible** by the OS user running the Node.js process for local logs, or by the configured SSH user for remote logs. Permission errors are surfaced to the user as runtime errors in the viewer.
 - **Single superadmin entry point.** The CLI seed script is the only way to create or modify superadmin accounts. This is by design to prevent privilege escalation via the web UI.
 - **Command execution relies on the OS user** running Bahotasu having necessary permissions on the target server (e.g., to run `sudo` without password if commands require it).
 - **The worker and HTTP server share the same Node.js process.** This is acceptable for low‑volume internal tools.
@@ -780,7 +789,7 @@ Internal API routes exist under `/api` (referenced in `/src/routes/api/`) for fu
 
 | Term | Definition |
 |---|---|
-| **Log Entry / Log Registration** | A record in the `logs` table representing a pointer to a log file on the filesystem, with metadata like tail lines and group association. Not the log content itself. |
+| **Log Entry / Log Registration** | A record in the `logs` table representing a pointer to a local or remote log file, with metadata like target server, tail lines, and group association. Not the log content itself. |
 | **Group** | A project or team namespace used to bundle related log entries and control which users have access to them. |
 | **Superadmin** | The highest privilege role. Created via CLI only. Has unrestricted access to all features and all log files. |
 | **User** | A regular authenticated account. Access to logs is scoped to their assigned groups plus any ungrouped logs. |
@@ -790,7 +799,7 @@ Internal API routes exist under `/api` (referenced in `/src/routes/api/`) for fu
 | **CSRF Token** | A per-session token embedded in all forms to prevent cross-site request forgery attacks. |
 | **Session** | A database-backed authentication record tied to a user and a secure random token stored in a browser cookie. |
 | **Command** | A named, pre‑approved shell command template defined by a superadmin, linked to a server and optionally a group. No user input is ever interpolated. |
-| **Server** | A target for command execution: either the local machine ("This Server") or a remote SSH host with encrypted credentials. |
+| **Server** | A target for command execution and remote log reading: either the local machine ("This Server") or a remote SSH host with encrypted credentials. |
 | **Command Execution** | A row in the `command_executions` queue table representing one invocation of a command by a user, tracking status, output, and audit metadata. |
 | **Worker** | An in‑process background `setInterval` loop that processes pending command executions one at a time. |
 | **Encryption Key** | A 256‑bit AES‑GCM secret stored in `.env` (`BAHOTASU_ENC_KEY`), auto‑generated on first startup. Used to encrypt/decrypt SSH credentials. |

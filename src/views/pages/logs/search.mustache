@@ -1,7 +1,8 @@
 <section class="mb-4">
   <p class="text-secondary small text-uppercase mb-1">String search</p>
   <h1 class="h4 fw-semibold mb-1">{{logName}}</h1>
-  <p class="text-secondary small mb-0">File: <code>{{filePath}}</code></p>
+  <!-- Server label added by OpenAI Codex GPT-5 / 2026-05-19 to clarify local vs remote search source. -->
+  <p class="text-secondary small mb-0">Server: <strong>{{serverLabel}}</strong> · File: <code>{{filePath}}</code></p>
 </section>
 
 <div class="card-lite p-3 mb-3">
@@ -47,4 +48,3 @@
 {{#hasOutput}}
 <textarea class="form-control" rows="26" readonly>{{output}}</textarea>
 {{/hasOutput}}
-

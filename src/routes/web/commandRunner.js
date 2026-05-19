@@ -35,6 +35,7 @@ import {
 } from "../../models/index.js";
 import { verifyPassword } from "../../lib/password.js";
 import { encrypt, decrypt } from "../../lib/encryption.js";
+import { closeRemoteLogConnection } from "../../services/logSource.service.js";
 
 const router = new Hono();
 
@@ -110,6 +111,9 @@ const navItems = [
   { key: "groups", label: "Group Management", href: "/admin/groups" },
   { key: "users", label: "User Management", href: "/admin/users" },
   { key: "logs", label: "Logs Management", href: "/admin/logs" },
+  // Server Management is separate because server targets are shared by remote logs and commands.
+  // Added by OpenAI Codex GPT-5 / 2026-05-19.
+  { key: "servers", label: "Server Management", href: "/admin/servers" },
   { key: "commands", label: "Commands Management", href: "/admin/commands" },
 ];
 
@@ -483,7 +487,7 @@ router.get(
     };
 
     const html = renderPage("pages/servers/list", {
-      ...basePageData(user, { activeNav: "commands" }),
+      ...basePageData(user, { activeNav: "servers" }),
       csrfToken: getCsrfToken(c),
       pageTitle: "Servers",
       servers: servers.map((s) => ({
@@ -511,7 +515,7 @@ router.get(
   requireSuperAdmin((c) => {
     const user = c.get("currentUser");
     const html = renderPage("pages/servers/form", {
-      ...basePageData(user, { activeNav: "commands" }),
+      ...basePageData(user, { activeNav: "servers" }),
       csrfToken: getCsrfToken(c),
       pageTitle: "New Server",
       title: "Create Server",
@@ -551,7 +555,7 @@ router.post(
 
     if (errors.length > 0) {
       const html = renderPage("pages/servers/form", {
-        ...basePageData(user, { activeNav: "commands" }),
+        ...basePageData(user, { activeNav: "servers" }),
         csrfToken: getCsrfToken(c),
         pageTitle: "New Server",
         title: "Create Server",
@@ -606,7 +610,7 @@ router.get(
     }
 
     const html = renderPage("pages/servers/form", {
-      ...basePageData(user, { activeNav: "commands" }),
+      ...basePageData(user, { activeNav: "servers" }),
       csrfToken: getCsrfToken(c),
       pageTitle: `Edit: ${server.name}`,
       title: "Edit Server",
@@ -661,6 +665,9 @@ router.post(
     }
 
     ServerModel.update(id, updateFields);
+    // Close pooled remote log SSH sessions so edited credentials/host data are used immediately.
+    // Added by OpenAI Codex GPT-5 / 2026-05-19 for remote log support.
+    closeRemoteLogConnection(id);
 
     return c.redirect("/admin/servers?notice=updated");
   }),
@@ -687,6 +694,9 @@ router.post(
     }
 
     ServerModel.remove(id);
+    // Drop any pooled remote log SSH session for the deleted server target.
+    // Added by OpenAI Codex GPT-5 / 2026-05-19 for remote log support.
+    closeRemoteLogConnection(id);
     return c.redirect("/admin/servers?notice=deleted");
   }),
 );
