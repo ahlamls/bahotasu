@@ -41,14 +41,18 @@ const splitEnvLines = (text) => {
  * Fully quoted strings are unescaped for editing; unquoted values are kept as typed.
  */
 const parseValue = (rawValue, lineNumber) => {
-  if (rawValue.startsWith('"')) {
-    if (!rawValue.endsWith('"') || rawValue.length === 1) {
-      throw new Error(`Line ${lineNumber}: quoted value must end with a double quote.`);
+  const value = rawValue.trim();
+  if (value.startsWith('"') || value.startsWith("'")) {
+    const quote = value[0];
+    if (!value.endsWith(quote) || value.length === 1) {
+      throw new Error(`Line ${lineNumber}: quoted value must end with the same quote character.`);
     }
-    const inner = rawValue.slice(1, -1);
-    return inner.replace(/\\(["\\])/g, "$1");
+    const inner = value.slice(1, -1);
+    return quote === '"'
+      ? inner.replace(/\\(["\\])/g, "$1")
+      : inner.replace(/\\(['\\])/g, "$1");
   }
-  return rawValue;
+  return value;
 };
 
 /**
@@ -64,7 +68,9 @@ const parseEnvLine = (line, index) => {
     const body = line.slice(1);
     if (body.includes("=")) {
       const separatorIndex = body.indexOf("=");
-      const name = body.slice(0, separatorIndex);
+      // Existing env files may contain "KEY = value"; normalize it on parse so
+      // saving rewrites the file to canonical "KEY=value" formatting.
+      const name = body.slice(0, separatorIndex).trim();
       const rawValue = body.slice(separatorIndex + 1);
       if (!ENV_VARIABLE_NAME_PATTERN.test(name)) {
         throw new Error(`Line ${lineNumber}: disabled variable name is invalid.`);
@@ -84,7 +90,9 @@ const parseEnvLine = (line, index) => {
   }
 
   const separatorIndex = line.indexOf("=");
-  const name = line.slice(0, separatorIndex);
+  // Accept whitespace around "=" in existing files, then serialize without it.
+  // Updated by OpenAI Codex GPT-5 / 2026-05-20 for tolerant env-file loading.
+  const name = line.slice(0, separatorIndex).trim();
   const rawValue = line.slice(separatorIndex + 1);
   if (!ENV_VARIABLE_NAME_PATTERN.test(name)) {
     throw new Error(`Line ${lineNumber}: variable name is invalid.`);
