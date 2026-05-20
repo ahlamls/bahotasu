@@ -5,6 +5,7 @@ import { migration_004 } from "./004_log_description.js";
 import { migration_005 } from "./005_command_runner.js";
 import { migration_006 } from "./006_server_username.js";
 import { migration_007 } from "./007_logs_server_target.js";
+import { migration_008 } from "./008_environment_variables.js";
 
 const migrations = [
   migration_001,
@@ -14,6 +15,7 @@ const migrations = [
   migration_005,
   migration_006,
   migration_007,
+  migration_008,
 ];
 
 const ensureMigrationTable = (db) => {

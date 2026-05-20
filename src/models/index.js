@@ -7,3 +7,5 @@ export { SessionModel } from "./sessions.js";
 export { ServerModel } from "./servers.js";
 export { CommandModel } from "./commands.js";
 export { CommandExecutionModel, EXECUTION_STATUS } from "./commandExecutions.js";
+export { EnvironmentFileModel } from "./environmentFiles.js";
+export { EnvironmentFileUpdateModel } from "./environmentFileUpdates.js";

@@ -111,6 +111,9 @@ const navItems = [
   { key: "groups", label: "Group Management", href: "/admin/groups" },
   { key: "users", label: "User Management", href: "/admin/users" },
   { key: "logs", label: "Logs Management", href: "/admin/logs" },
+  // Environment Management is shared navigation for approved .env file editing.
+  // Added by OpenAI Codex GPT-5 / 2026-05-20 for the Environment Variables feature.
+  { key: "environments", label: "Environment Management", href: "/admin/environments" },
   // Server Management is separate because server targets are shared by remote logs and commands.
   // Added by OpenAI Codex GPT-5 / 2026-05-19.
   { key: "servers", label: "Server Management", href: "/admin/servers" },

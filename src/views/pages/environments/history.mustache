@@ -1,0 +1,73 @@
+<!--
+  Environment History - shows redacted save history for one editable env file.
+  Values are intentionally masked so rotated secrets are not copied into SQLite history.
+  Added by OpenAI Codex GPT-5 / 2026-05-20.
+-->
+<section class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-3">
+  <div>
+    <h1 class="h4 fw-semibold mb-1">Environment history</h1>
+    <p class="text-secondary mb-1">{{environmentTitle}}</p>
+    <p class="text-secondary small mb-0">Server: <strong>{{serverLabel}}</strong> &middot; File: <code>{{filePath}}</code></p>
+  </div>
+  <a class="btn btn-outline-primary" href="{{editUrl}}">Edit environment</a>
+</section>
+
+{{#error}}
+<div class="alert alert-danger" role="alert">{{error}}</div>
+{{/error}}
+
+<div class="d-grid gap-3">
+  {{#updates}}
+  <div class="card-lite p-3">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+      <div>
+        <div class="fw-semibold">Update #{{id}}</div>
+        <div class="text-secondary small">By {{userName}} &middot; {{createdAt}}</div>
+      </div>
+      <span class="badge bg-light text-dark">{{serverName}}</span>
+    </div>
+    <div class="small text-secondary mb-2">
+      Previous hash: <code>{{previousHash}}</code><br />
+      Current hash: <code>{{currentHash}}</code>
+    </div>
+    {{#hasChanges}}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Action</th>
+            <th>Line</th>
+            <th>Type</th>
+            <th>Label</th>
+            <th>State</th>
+            <th>Old</th>
+            <th>New</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{#changes}}
+          <tr>
+            <td>{{action}}</td>
+            <td>{{line}}</td>
+            <td>{{type}}</td>
+            <td>{{label}}</td>
+            <td>{{enabledLabel}}</td>
+            <td>{{oldValue}}</td>
+            <td>{{newValue}}</td>
+          </tr>
+          {{/changes}}
+        </tbody>
+      </table>
+    </div>
+    {{/hasChanges}}
+    {{^hasChanges}}
+    <p class="text-secondary mb-0">No changed lines recorded.</p>
+    {{/hasChanges}}
+  </div>
+  {{/updates}}
+  {{^hasUpdates}}
+  <section class="card-lite p-4 text-center text-secondary">
+    <p class="mb-0">No environment updates recorded yet.</p>
+  </section>
+  {{/hasUpdates}}
+</div>

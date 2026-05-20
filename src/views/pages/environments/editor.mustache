@@ -1,0 +1,587 @@
+<!--
+  Environment Editor - structured .env editor that sends JSON lines to the backend.
+  Raw env text is preview-only; the backend validates and serializes the final file.
+  Added by OpenAI Codex GPT-5 / 2026-05-20.
+-->
+<section class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-3">
+  <div>
+    <p class="text-secondary small text-uppercase mb-1">Environment Variables</p>
+    <h1 class="h4 fw-semibold mb-1">{{environmentTitle}}</h1>
+    {{#environmentDescription}}
+    <p class="text-secondary mb-1">{{environmentDescription}}</p>
+    {{/environmentDescription}}
+    <p class="text-secondary small mb-0">Server: <strong>{{serverLabel}}</strong> &middot; File: <code>{{filePath}}</code></p>
+  </div>
+  <a class="btn btn-outline-secondary" href="{{historyUrl}}">History</a>
+</section>
+
+{{#loadError}}
+<div class="alert alert-danger" role="alert">{{loadError}}</div>
+{{/loadError}}
+
+<section class="card-lite p-3 p-md-4">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div class="d-flex gap-2 flex-wrap">
+      <button type="button" class="btn btn-primary btn-sm env-add-variable" {{^canSave}}disabled{{/canSave}}>Add Variable</button>
+      <button type="button" class="btn btn-outline-primary btn-sm env-add-comment" {{^canSave}}disabled{{/canSave}}>Add Comment</button>
+    </div>
+  </div>
+
+  <div id="envEditorRows" class="d-grid gap-2"></div>
+
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-4">
+    <div class="d-flex gap-2 flex-wrap">
+      <button type="button" class="btn btn-primary btn-sm env-add-variable" {{^canSave}}disabled{{/canSave}}>Add Variable</button>
+      <button type="button" class="btn btn-outline-primary btn-sm env-add-comment" {{^canSave}}disabled{{/canSave}}>Add Comment</button>
+    </div>
+    <div class="d-flex gap-2 flex-wrap justify-content-end">
+      <button type="button" class="btn btn-outline-secondary btn-sm" id="rawTextBtn" {{^canSave}}disabled{{/canSave}}>Raw Text</button>
+      <button type="button" class="btn btn-success btn-sm" id="saveEnvBtn" {{^canSave}}disabled{{/canSave}}>Save Changes</button>
+    </div>
+  </div>
+  <p class="text-success small mb-0 mt-3 d-none" id="saveSuccessMessage"></p>
+  <p class="text-danger small mb-0 mt-3 d-none" id="saveErrorMessage"></p>
+</section>
+
+<div class="modal fade" id="lineModal" tabindex="-1" aria-labelledby="lineModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="lineModalLabel">Environment line</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="variableFields" class="d-grid gap-3">
+          <div>
+            <label class="form-label small text-uppercase text-secondary" for="variableNameInput">Variable name</label>
+            <input type="text" id="variableNameInput" class="form-control" autocomplete="off" />
+          </div>
+          <div>
+            <label class="form-label small text-uppercase text-secondary" for="variableValueInput">Value</label>
+            <input type="text" id="variableValueInput" class="form-control" autocomplete="off" />
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="variableEnabledInput" checked />
+            <label class="form-check-label" for="variableEnabledInput">Enabled</label>
+          </div>
+        </div>
+        <div id="commentFields" class="d-grid gap-3 d-none">
+          <div>
+            <label class="form-label small text-uppercase text-secondary" for="commentTextInput">Comment</label>
+            <input type="text" id="commentTextInput" class="form-control" autocomplete="off" />
+          </div>
+        </div>
+        <p class="text-danger small mb-0 mt-3 d-none" id="lineModalError"></p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="lineModalSaveBtn">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="deleteLineModal" tabindex="-1" aria-labelledby="deleteLineModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="deleteLineModalLabel">Delete line</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-0">Delete this environment line?</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="confirmDeleteLineBtn">Delete</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="rawTextModal" tabindex="-1" aria-labelledby="rawTextModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="rawTextModalLabel">Raw Text Preview</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <textarea id="rawTextPreview" class="form-control font-monospace" rows="16" readonly></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="saveConfirmModal" tabindex="-1" aria-labelledby="saveConfirmModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="saveConfirmModalLabel">Confirm environment save</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-warning" role="alert">
+          You are about to update an environment file on the target server. This action requires your password and will be recorded in history.
+        </div>
+        <div class="mb-3">
+          <label class="form-label small text-uppercase text-secondary" for="savePasswordInput">Your password</label>
+          <input type="password" id="savePasswordInput" class="form-control" autocomplete="current-password" />
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Action</th>
+                <th>Line</th>
+                <th>Type</th>
+                <th>Label</th>
+              </tr>
+            </thead>
+            <tbody id="saveChangesList"></tbody>
+          </table>
+        </div>
+        <p class="text-danger small mb-0 mt-3 d-none" id="saveModalError"></p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-success" id="confirmSaveEnvBtn">Confirm Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  (() => {
+    const initEnvironmentEditor = () => {
+    const csrfToken = "{{csrfToken}}";
+    const environmentId = "{{environmentId}}";
+    let baseHash = "{{baseHash}}";
+    let lines = {{{initialLinesJson}}};
+    let originalLines = JSON.parse(JSON.stringify(lines));
+
+    const variablePattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
+    const numberPattern = /^-?\d+(?:\.\d+)?$/;
+
+    const rowsEl = document.getElementById("envEditorRows");
+    /**
+     * Creates a small modal wrapper that prefers Bootstrap but still lets the
+     * existing env rows render if the CDN script is unavailable.
+     * Updated by OpenAI Codex GPT-5 / 2026-05-20 after /home/senja/.cobaenv rendered empty.
+     */
+    const createModalController = (id) => {
+      const element = document.getElementById(id);
+      if (window.bootstrap?.Modal) {
+        const modal = new bootstrap.Modal(element);
+        return {
+          show: () => modal.show(),
+          hide: () => modal.hide(),
+        };
+      }
+
+      return {
+        show: () => {
+          // Fallback backdrop mirrors Bootstrap enough for the editor modals when CDN JS is unavailable.
+          // Updated by OpenAI Codex GPT-5 / 2026-05-20 after fallback modals showed without a backdrop.
+          let backdrop = document.querySelector(`.modal-backdrop[data-fallback-modal="${id}"]`);
+          if (!backdrop) {
+            backdrop = document.createElement("div");
+            backdrop.className = "modal-backdrop fade";
+            backdrop.setAttribute("data-fallback-modal", id);
+            document.body.appendChild(backdrop);
+          }
+          document.body.classList.add("modal-open");
+          document.body.style.overflow = "hidden";
+          element.style.display = "block";
+          element.removeAttribute("aria-hidden");
+          element.setAttribute("aria-modal", "true");
+          element.offsetHeight;
+          requestAnimationFrame(() => {
+            backdrop.classList.add("show");
+            element.classList.add("show");
+          });
+        },
+        hide: () => {
+          const backdrops = document.querySelectorAll(`.modal-backdrop[data-fallback-modal="${id}"]`);
+          element.classList.remove("show");
+          backdrops.forEach((backdrop) => backdrop.classList.remove("show"));
+          setTimeout(() => {
+            element.style.display = "none";
+            element.setAttribute("aria-hidden", "true");
+            element.removeAttribute("aria-modal");
+            backdrops.forEach((backdrop) => backdrop.remove());
+            if (!document.querySelector(".modal.show")) {
+              document.body.classList.remove("modal-open");
+              document.body.style.overflow = "";
+            }
+          }, 150);
+        },
+      };
+    };
+
+    const lineModal = createModalController("lineModal");
+    const deleteLineModal = createModalController("deleteLineModal");
+    const rawTextModal = createModalController("rawTextModal");
+    const saveConfirmModal = createModalController("saveConfirmModal");
+
+    document.querySelectorAll("[data-bs-dismiss='modal']").forEach((button) => {
+      button.addEventListener("click", () => {
+        const modalElement = button.closest(".modal");
+        if (modalElement && !window.bootstrap?.Modal) {
+          createModalController(modalElement.id).hide();
+        }
+      });
+    });
+
+    const variableFields = document.getElementById("variableFields");
+    const commentFields = document.getElementById("commentFields");
+    const variableNameInput = document.getElementById("variableNameInput");
+    const variableValueInput = document.getElementById("variableValueInput");
+    const variableEnabledInput = document.getElementById("variableEnabledInput");
+    const commentTextInput = document.getElementById("commentTextInput");
+    const lineModalLabel = document.getElementById("lineModalLabel");
+    const lineModalError = document.getElementById("lineModalError");
+    const saveSuccessMessage = document.getElementById("saveSuccessMessage");
+    const saveErrorMessage = document.getElementById("saveErrorMessage");
+    const saveChangesList = document.getElementById("saveChangesList");
+    const savePasswordInput = document.getElementById("savePasswordInput");
+    const saveModalError = document.getElementById("saveModalError");
+    const confirmSaveEnvBtn = document.getElementById("confirmSaveEnvBtn");
+
+    let modalMode = "variable";
+    let editingIndex = null;
+    let deletingIndex = null;
+
+    const normalizeLine = (line) => {
+      if (!line) return null;
+      if (line.type === "variable") {
+        return {
+          type: "variable",
+          name: line.name || "",
+          value: String(line.value ?? ""),
+          enabled: line.enabled !== false,
+        };
+      }
+      if (line.type === "comment") return { type: "comment", text: line.text || "" };
+      return { type: "blank" };
+    };
+
+    const escapeValue = (value) => String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    const serializeValue = (value) => {
+      const normalized = String(value ?? "");
+      return numberPattern.test(normalized) ? normalized : `"${escapeValue(normalized)}"`;
+    };
+    const serializeLine = (line) => {
+      if (line.type === "blank") return "";
+      if (line.type === "comment") return `#${line.text || ""}`;
+      return `${line.enabled === false ? "#" : ""}${line.name}=${serializeValue(line.value)}`;
+    };
+    const serializeLines = () => lines.map(serializeLine).join("\n") + (lines.length > 0 ? "\n" : "");
+
+    const lineLabel = (line) => {
+      if (!line) return "";
+      if (line.type === "variable") return line.name || "Variable";
+      if (line.type === "comment") return line.text || "Comment";
+      return "Blank line";
+    };
+
+    const buildClientChanges = () => {
+      const changes = [];
+      const total = Math.max(originalLines.length, lines.length);
+      for (let index = 0; index < total; index += 1) {
+        const before = normalizeLine(originalLines[index]);
+        const after = normalizeLine(lines[index]);
+        if (JSON.stringify(before) === JSON.stringify(after)) continue;
+        changes.push({
+          action: before && after ? "updated" : before ? "deleted" : "added",
+          line: index + 1,
+          type: (after || before || {}).type || "unknown",
+          label: lineLabel(after || before),
+        });
+      }
+      return changes;
+    };
+
+    const validateLines = () => {
+      const enabledNames = new Set();
+      for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
+        const lineNumber = index + 1;
+        if (line.type === "blank") continue;
+        if (line.type === "comment") {
+          if ((line.text || "").includes("=")) return `Line ${lineNumber}: comments cannot contain "=".`;
+          if ((line.text || "").includes("\n")) return `Line ${lineNumber}: comments cannot contain new lines.`;
+          continue;
+        }
+        if (line.type === "variable") {
+          if (!variablePattern.test(line.name || "")) return `Line ${lineNumber}: variable name is invalid.`;
+          if (String(line.value ?? "").includes("\n")) return `Line ${lineNumber}: values cannot contain new lines.`;
+          if (line.enabled !== false && enabledNames.has(line.name)) {
+            return `Line ${lineNumber}: duplicate enabled variable "${line.name}" is not allowed.`;
+          }
+          if (line.enabled !== false) enabledNames.add(line.name);
+          continue;
+        }
+        return `Line ${lineNumber}: unsupported line type.`;
+      }
+      return "";
+    };
+
+    const showError = (message) => {
+      saveSuccessMessage.classList.add("d-none");
+      saveErrorMessage.textContent = message;
+      saveErrorMessage.classList.remove("d-none");
+    };
+
+    const clearMessages = () => {
+      saveSuccessMessage.classList.add("d-none");
+      saveErrorMessage.classList.add("d-none");
+      saveModalError.classList.add("d-none");
+      saveModalError.textContent = "";
+    };
+
+    const renderRows = () => {
+      rowsEl.innerHTML = "";
+      if (lines.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "text-secondary text-center py-4 border rounded bg-light";
+        empty.textContent = "Environment variable is empty";
+        rowsEl.appendChild(empty);
+        return;
+      }
+
+      lines.forEach((line, index) => {
+        const row = document.createElement("div");
+        row.className = "d-flex align-items-center justify-content-between gap-3 border rounded p-3";
+        if (line.type === "comment") row.classList.add("bg-info-subtle");
+        if (line.type === "variable" && line.enabled === false) row.classList.add("bg-light", "text-secondary");
+
+        const body = document.createElement("div");
+        body.className = "min-w-0";
+        const title = document.createElement("div");
+        title.className = "text-break";
+
+        if (line.type === "comment") {
+          title.classList.add("fw-semibold");
+          title.textContent = "\u{1F4AC} " + (line.text || "Comment");
+        } else if (line.type === "variable") {
+          // Keep only the env key bold so rows read as "KEY - value" instead of bolding secrets/values.
+          // Updated by OpenAI Codex GPT-5 / 2026-05-20 for Environment Variables row readability.
+          title.appendChild(document.createTextNode(line.enabled === false ? "\u274C " : ""));
+          const nameEl = document.createElement("strong");
+          nameEl.textContent = line.name;
+          title.appendChild(nameEl);
+          title.appendChild(document.createTextNode(" - " + String(line.value ?? "")));
+        } else {
+          // Blank separators are intentionally muted so they read as spacing, not editable content.
+          // Updated by OpenAI Codex GPT-5 / 2026-05-20 for Environment Variables row readability.
+          title.classList.add("text-muted");
+          title.textContent = "Blank line";
+        }
+
+        body.appendChild(title);
+        if (line.type === "variable" && line.enabled === false) {
+          const status = document.createElement("div");
+          status.className = "small";
+          status.textContent = "disabled";
+          body.appendChild(status);
+        }
+
+        const actions = document.createElement("div");
+        actions.className = "d-flex gap-2 flex-shrink-0";
+
+        if (line.type !== "blank") {
+          const editBtn = document.createElement("button");
+          editBtn.type = "button";
+          editBtn.className = "btn btn-outline-secondary btn-sm";
+          editBtn.textContent = "Edit";
+          editBtn.addEventListener("click", () => openLineModal(line.type, index));
+          actions.appendChild(editBtn);
+        }
+
+        const deleteBtn = document.createElement("button");
+        deleteBtn.type = "button";
+        deleteBtn.className = "btn btn-outline-danger btn-sm";
+        deleteBtn.textContent = "Delete";
+        deleteBtn.addEventListener("click", () => {
+          deletingIndex = index;
+          deleteLineModal.show();
+        });
+        actions.appendChild(deleteBtn);
+
+        row.appendChild(body);
+        row.appendChild(actions);
+        rowsEl.appendChild(row);
+      });
+    };
+
+    const openLineModal = (type, index = null) => {
+      modalMode = type;
+      editingIndex = index;
+      lineModalError.classList.add("d-none");
+      lineModalError.textContent = "";
+      variableFields.classList.toggle("d-none", type !== "variable");
+      commentFields.classList.toggle("d-none", type !== "comment");
+      lineModalLabel.textContent = index === null ? (type === "variable" ? "Add Variable" : "Add Comment") : (type === "variable" ? "Edit Variable" : "Edit Comment");
+
+      const existing = index === null ? null : lines[index];
+      if (type === "variable") {
+        variableNameInput.value = existing?.name || "";
+        variableValueInput.value = existing?.value || "";
+        variableEnabledInput.checked = existing ? existing.enabled !== false : true;
+      } else {
+        commentTextInput.value = existing?.text || "";
+      }
+      lineModal.show();
+    };
+
+    document.querySelectorAll(".env-add-variable").forEach((button) => {
+      button.addEventListener("click", () => openLineModal("variable"));
+    });
+    document.querySelectorAll(".env-add-comment").forEach((button) => {
+      button.addEventListener("click", () => openLineModal("comment"));
+    });
+
+    document.getElementById("lineModalSaveBtn").addEventListener("click", () => {
+      let nextLine;
+      if (modalMode === "variable") {
+        const name = variableNameInput.value.trim();
+        const value = variableValueInput.value;
+        if (!variablePattern.test(name)) {
+          lineModalError.textContent = "Variable name must start with a letter or underscore and contain only letters, numbers, or underscores.";
+          lineModalError.classList.remove("d-none");
+          return;
+        }
+        if (value.includes("\n")) {
+          lineModalError.textContent = "Variable values cannot contain new lines.";
+          lineModalError.classList.remove("d-none");
+          return;
+        }
+        nextLine = { type: "variable", name, value, enabled: variableEnabledInput.checked };
+      } else {
+        const text = commentTextInput.value.trim();
+        if (!text) {
+          lineModalError.textContent = "Comment is required.";
+          lineModalError.classList.remove("d-none");
+          return;
+        }
+        if (text.includes("=")) {
+          lineModalError.textContent = "Comments cannot contain equals signs.";
+          lineModalError.classList.remove("d-none");
+          return;
+        }
+        nextLine = { type: "comment", text };
+      }
+
+      if (editingIndex === null) {
+        lines.push(nextLine);
+      } else {
+        lines[editingIndex] = nextLine;
+      }
+      renderRows();
+      clearMessages();
+      lineModal.hide();
+    });
+
+    document.getElementById("confirmDeleteLineBtn").addEventListener("click", () => {
+      if (deletingIndex !== null) {
+        lines.splice(deletingIndex, 1);
+        deletingIndex = null;
+        renderRows();
+        clearMessages();
+      }
+      deleteLineModal.hide();
+    });
+
+    document.getElementById("rawTextBtn").addEventListener("click", () => {
+      const error = validateLines();
+      if (error) {
+        showError(error);
+        return;
+      }
+      document.getElementById("rawTextPreview").value = serializeLines();
+      rawTextModal.show();
+    });
+
+    document.getElementById("saveEnvBtn").addEventListener("click", () => {
+      clearMessages();
+      const error = validateLines();
+      if (error) {
+        showError(error);
+        return;
+      }
+      const changes = buildClientChanges();
+      if (changes.length === 0) {
+        showError("No environment changes detected.");
+        return;
+      }
+      saveChangesList.innerHTML = "";
+      changes.forEach((change) => {
+        const row = document.createElement("tr");
+        ["action", "line", "type", "label"].forEach((field) => {
+          const cell = document.createElement("td");
+          cell.textContent = String(change[field]);
+          row.appendChild(cell);
+        });
+        saveChangesList.appendChild(row);
+      });
+      savePasswordInput.value = "";
+      saveConfirmModal.show();
+    });
+
+    confirmSaveEnvBtn.addEventListener("click", async () => {
+      saveModalError.classList.add("d-none");
+      const password = savePasswordInput.value;
+      if (!password) {
+        saveModalError.textContent = "Your password is required.";
+        saveModalError.classList.remove("d-none");
+        return;
+      }
+
+      confirmSaveEnvBtn.disabled = true;
+      try {
+        const response = await fetch(`/environments/${environmentId}/save`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            _csrf: csrfToken,
+            password,
+            baseHash,
+            lines,
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok || data.error) {
+          const detail = Array.isArray(data.details) ? " " + data.details.join(" ") : "";
+          saveModalError.textContent = (data.error || "Failed to save environment.") + detail;
+          saveModalError.classList.remove("d-none");
+          return;
+        }
+
+        baseHash = data.current_hash || baseHash;
+        originalLines = JSON.parse(JSON.stringify(lines));
+        saveSuccessMessage.textContent = data.message || `Environment successfully updated on ${data.updated_at}`;
+        saveSuccessMessage.classList.remove("d-none");
+        saveErrorMessage.classList.add("d-none");
+        saveConfirmModal.hide();
+      } catch (_) {
+        saveModalError.textContent = "Network error. Please try again.";
+        saveModalError.classList.remove("d-none");
+      } finally {
+        confirmSaveEnvBtn.disabled = false;
+      }
+    });
+
+    renderRows();
+    };
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", initEnvironmentEditor, { once: true });
+      return;
+    }
+    initEnvironmentEditor();
+  })();
+</script>

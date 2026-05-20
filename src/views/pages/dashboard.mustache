@@ -104,12 +104,50 @@
 </section>
 {{/hasCommands}}
 
+<!-- ===== ENVIRONMENT VARIABLES SECTION ===== -->
+{{#hasEnvironments}}
+<section class="mb-4">
+  <h2 class="h5 fw-semibold mb-3 text-uppercase text-secondary">&#128736; Environment Variables</h2>
+  {{#environmentGroups}}
+  <div class="mb-4">
+    <h3 class="h6 fw-semibold mb-2">{{groupName}}</h3>
+    <div class="row g-3">
+      {{#environments}}
+      <div class="col-12 col-md-6">
+        <div class="card-lite p-3 h-100 d-flex flex-column justify-content-between">
+          <div>
+            <div class="fw-semibold mb-1">{{title}}</div>
+            {{#description}}
+            <div class="text-secondary small mb-2">{{description}}</div>
+            {{/description}}
+            <!-- Environment cards show target server and file path so developers know exactly what will be edited. -->
+            <!-- Added by OpenAI Codex GPT-5 / 2026-05-20 for Environment Variables. -->
+            <div class="mb-2">
+              <span class="badge bg-light text-dark">{{serverName}}</span>
+            </div>
+            <code class="small text-break">{{filePath}}</code>
+          </div>
+          <div class="d-flex gap-2 flex-wrap mt-3">
+            <a class="btn btn-primary btn-sm" href="{{editUrl}}">Edit</a>
+            <a class="btn btn-outline-secondary btn-sm" href="{{historyUrl}}">History</a>
+          </div>
+        </div>
+      </div>
+      {{/environments}}
+    </div>
+  </div>
+  {{/environmentGroups}}
+</section>
+{{/hasEnvironments}}
+
 <!-- ===== EMPTY STATE ===== -->
 {{^hasLogs}}
 {{^hasCommands}}
+{{^hasEnvironments}}
   <section class="card-lite p-4 text-center text-secondary">
-    <p class="mb-0">No logs or commands available for your account yet.</p>
+    <p class="mb-0">No logs, commands, or environments available for your account yet.</p>
   </section>
+{{/hasEnvironments}}
 {{/hasCommands}}
 {{/hasLogs}}
 

@@ -54,7 +54,9 @@
           <div class="d-flex flex-wrap gap-2 justify-content-end">
             <a class="btn btn-outline-secondary btn-sm" href="/admin/servers/{{id}}/edit">Edit</a>
             {{^isLocal}}
-            <form method="post" action="/admin/servers/{{id}}/delete" onsubmit="return confirm('Delete this server? Commands referencing it will become unassigned.');">
+            <!-- Delete warning includes all current server-backed features: commands, logs, and environments. -->
+            <!-- Updated by OpenAI Codex GPT-5 / 2026-05-20 for Environment Variables. -->
+            <form method="post" action="/admin/servers/{{id}}/delete" onsubmit="return confirm('Delete this server? Commands, logs, and environments referencing it will become local/unassigned.');">
               <input type="hidden" name="_csrf" value="{{csrfToken}}" />
               <button class="btn btn-outline-danger btn-sm" type="submit">Delete</button>
             </form>

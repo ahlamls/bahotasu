@@ -9,7 +9,18 @@ import {
   REMEMBER_COOKIE,
 } from "../../middleware/session.js";
 import { parseCookies } from "../../lib/cookies.js";
-import { UserModel, SessionModel, LogModel, UserGroupModel, GroupModel, CommandModel, ServerModel, USER_ROLES } from "../../models/index.js";
+import {
+  UserModel,
+  SessionModel,
+  LogModel,
+  UserGroupModel,
+  GroupModel,
+  CommandModel,
+  ServerModel,
+  EnvironmentFileModel,
+  EnvironmentFileUpdateModel,
+  USER_ROLES,
+} from "../../models/index.js";
 import { verifyPassword, hashPassword } from "../../lib/password.js";
 import {
   clearLogFile,
@@ -17,6 +28,14 @@ import {
   readLogTail,
   searchLogWithContext,
 } from "../../services/logSource.service.js";
+import {
+  buildRedactedChanges,
+  hashEnvText,
+  parseEnvText,
+  readEnvironmentFileText,
+  serializeEnvLines,
+  writeEnvironmentFileText,
+} from "../../services/environmentFile.service.js";
 
 const router = new Hono();
 
@@ -49,13 +68,16 @@ const buildLayoutUser = (user) =>
 
 const navItems = [
   { key: "home", label: "Home", href: "/dashboard" },
-  { key: "groups", label: "Group Management", href: "/admin/groups" },
-  { key: "users", label: "User Management", href: "/admin/users" },
-  { key: "logs", label: "Logs Management", href: "/admin/logs" },
+  { key: "groups", label: "Group", href: "/admin/groups" },
+  { key: "users", label: "User", href: "/admin/users" },
+  { key: "logs", label: "Logs", href: "/admin/logs" },
+  // Environment Management registers safe .env edit targets for group-scoped users.
+  // Added by OpenAI Codex GPT-5 / 2026-05-20 for the Environment Variables feature.
+  { key: "environments", label: "Environment", href: "/admin/environments" },
   // Server Management is its own menu because servers now back both remote logs and commands.
   // Added by OpenAI Codex GPT-5 / 2026-05-19.
-  { key: "servers", label: "Server Management", href: "/admin/servers" },
-  { key: "commands", label: "Commands Management", href: "/admin/commands" },
+  { key: "servers", label: "Server", href: "/admin/servers" },
+  { key: "commands", label: "Commands", href: "/admin/commands" },
 ];
 
 const SLUG_PATTERN = /^[A-Za-z0-9_]+$/;
@@ -182,6 +204,55 @@ const buildCommandDashboardGroups = (user) => {
   return sections;
 };
 
+/**
+ * Builds Environment Variables dashboard sections grouped by project group.
+ * Only active env files are listed for editing; superadmins can manage inactive ones in admin.
+ * Added by OpenAI Codex GPT-5 / 2026-05-20.
+ */
+const buildEnvironmentDashboardGroups = (user) => {
+  const records = EnvironmentFileModel.listAvailableForUser(user.id, user.role);
+
+  const grouped = new Map();
+  const ungrouped = [];
+
+  records.forEach((envFile) => {
+    const item = {
+      id: envFile.id,
+      title: envFile.title,
+      description: envFile.description || "",
+      filePath: envFile.filePath,
+      serverName: envFile.serverName || "This Server",
+      editUrl: `/environments/${envFile.id}/edit`,
+      historyUrl: `/environments/${envFile.id}/history`,
+    };
+
+    if (envFile.groupId) {
+      if (!grouped.has(envFile.groupId)) {
+        grouped.set(envFile.groupId, {
+          groupId: envFile.groupId,
+          groupName: envFile.groupName || "Group",
+          environments: [],
+        });
+      }
+      grouped.get(envFile.groupId).environments.push(item);
+    } else {
+      ungrouped.push(item);
+    }
+  });
+
+  const sections = Array.from(grouped.values()).sort((a, b) =>
+    a.groupName.localeCompare(b.groupName),
+  );
+  if (ungrouped.length > 0) {
+    sections.push({
+      groupId: null,
+      groupName: "Other environments",
+      environments: ungrouped,
+    });
+  }
+  return sections;
+};
+
 const loginNoticeFromQuery = (c) => {
   const notice = c.req.query("notice");
   if (notice === "password-updated") {
@@ -220,6 +291,7 @@ const renderDashboard = (c) => {
   if (!user) return c.redirect("/login");
   const logGroups = buildDashboardGroups(user);
   const commandGroups = buildCommandDashboardGroups(user);
+  const environmentGroups = buildEnvironmentDashboardGroups(user);
 
   const html = renderPage("pages/dashboard", {
     ...basePageData(user, { activeNav: "home" }),
@@ -230,6 +302,8 @@ const renderDashboard = (c) => {
     hasLogs: logGroups.length > 0,
     commandGroups,
     hasCommands: commandGroups.length > 0,
+    environmentGroups,
+    hasEnvironments: environmentGroups.length > 0,
   });
 
   return c.html(html);
@@ -278,6 +352,12 @@ const logNotices = {
   deleted: "Log deleted successfully.",
 };
 
+const environmentNotices = {
+  created: "Environment created successfully.",
+  updated: "Environment updated successfully.",
+  deleted: "Environment deleted successfully.",
+};
+
 const DEFAULT_TAIL_LINES = 1000;
 const parseTailLines = (value) => {
   const num = Number(value);
@@ -312,6 +392,18 @@ const hasValidCsrfToken = (c, body) => {
   if (expectedBuffer.length !== providedBuffer.length) return false;
   return crypto.timingSafeEqual(expectedBuffer, providedBuffer);
 };
+
+/**
+ * Embeds JSON safely into inline scripts by escaping HTML-significant characters.
+ * This lets the editor receive structured env lines without using raw env text as input.
+ */
+const toSafeScriptJson = (value) =>
+  JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
 
 const renderGroupList = (c, state = {}) => {
   const user = c.get("currentUser");
@@ -466,6 +558,100 @@ const renderLogForm = (c, state = {}) => {
     noServerSelected: selectedServerId === null,
     groups,
     noGroupSelected: selectedGroupId === null,
+    error: state.error,
+  });
+  return c.html(html);
+};
+
+const renderEnvironmentList = (c, state = {}) => {
+  const user = c.get("currentUser");
+  const noticeKey = state.notice || c.req.query("notice");
+  const environments = EnvironmentFileModel.listAll().map((envFile) => ({
+    ...envFile,
+    groupLabel: envFile.groupName || "Everyone",
+    serverLabel: envFile.serverName || "This Server",
+  }));
+
+  const html = renderPage("pages/environments/list", {
+    ...basePageData(user, { activeNav: "environments" }),
+    csrfToken: getCsrfToken(c),
+    pageTitle: "Environment Management",
+    environments,
+    hasEnvironments: environments.length > 0,
+    notice: environmentNotices[noticeKey] || null,
+    error: state.error,
+  });
+  return c.html(html);
+};
+
+const renderEnvironmentForm = (c, state = {}) => {
+  const user = c.get("currentUser");
+  const selectedGroupId =
+    state.groupId === undefined || state.groupId === null ? null : Number(state.groupId);
+  const groups = GroupModel.listAll().map((group) => ({
+    ...group,
+    selected: selectedGroupId !== null && group.id === selectedGroupId,
+  }));
+
+  const rawSelectedServerId =
+    state.serverId === undefined || state.serverId === null ? null : Number(state.serverId);
+  const allServers = ServerModel.listAll();
+  const selectedServer = allServers.find((server) => server.id === rawSelectedServerId);
+  // Local server selections are normalized to NULL so env files follow the same target semantics as logs.
+  // Added by OpenAI Codex GPT-5 / 2026-05-20 for Environment Variables.
+  const selectedServerId =
+    selectedServer && !ServerModel.isLocalServer(selectedServer) ? selectedServer.id : null;
+  const servers = allServers.map((server) => ({
+    ...server,
+    isRemote: !ServerModel.isLocalServer(server),
+    selected: selectedServerId !== null && server.id === selectedServerId,
+  }));
+
+  const html = renderPage("pages/environments/form", {
+    ...basePageData(user, { activeNav: "environments" }),
+    csrfToken: getCsrfToken(c),
+    pageTitle: state.title,
+    title: state.title,
+    formAction: state.formAction,
+    submitLabel: state.submitLabel,
+    titleValue: state.titleValue || "",
+    descriptionValue: state.descriptionValue || "",
+    filePathValue: state.filePathValue || "",
+    isActive: state.isActive !== false,
+    servers,
+    noServerSelected: selectedServerId === null,
+    groups,
+    noGroupSelected: selectedGroupId === null,
+    error: state.error,
+  });
+  return c.html(html);
+};
+
+const renderEnvironmentHistory = (c, envFile, updates, state = {}) => {
+  const user = c.get("currentUser");
+  const html = renderPage("pages/environments/history", {
+    ...basePageData(user),
+    csrfToken: getCsrfToken(c),
+    pageTitle: `${envFile.title} · Environment History`,
+    environmentTitle: envFile.title,
+    environmentDescription: envFile.description || "",
+    filePath: envFile.filePath,
+    serverLabel: envFile.serverName || "This Server",
+    editUrl: `/environments/${envFile.id}/edit`,
+    updates: updates.map((update) => ({
+      ...update,
+      hasChanges: update.changes.length > 0,
+      changes: update.changes.map((change) => ({
+        ...change,
+        enabledLabel:
+          change.type === "variable"
+            ? change.newEnabled === false
+              ? "Disabled"
+              : "Enabled"
+            : "",
+      })),
+    })),
+    hasUpdates: updates.length > 0,
     error: state.error,
   });
   return c.html(html);
@@ -1069,6 +1255,20 @@ router.post(
   }),
 );
 
+router.get("/admin/environments", requireSuperAdmin((c) => renderEnvironmentList(c)));
+
+router.get(
+  "/admin/environments/new",
+  requireSuperAdmin((c) =>
+    renderEnvironmentForm(c, {
+      title: "Create environment",
+      formAction: "/admin/environments",
+      submitLabel: "Create environment",
+      isActive: true,
+    }),
+  ),
+);
+
 router.get("/admin/logs", requireSuperAdmin((c) => renderLogList(c)));
 
 router.get(
@@ -1097,11 +1297,11 @@ const parseServerId = (value) => {
 };
 
 /**
- * Normalizes log server selection.
- * NULL and the seeded local server both mean the existing local log reader.
- * Added by OpenAI Codex GPT-5 / 2026-05-19 for per-log remote server targets.
+ * Normalizes file-target server selection for logs and environments.
+ * NULL and the seeded local server both mean local filesystem behavior.
+ * Updated by OpenAI Codex GPT-5 / 2026-05-20 for shared environment targets.
  */
-const resolveLogServerSelection = (serverId) => {
+const resolveFileServerSelection = (serverId) => {
   if (serverId === null) return { serverId: null };
   const server = ServerModel.findById(serverId);
   if (!server) {
@@ -1136,6 +1336,374 @@ const getAuthorizedLog = (c) => {
   return { log };
 };
 
+const activeFromBody = (raw) => {
+  if (typeof raw === "string") {
+    return ["1", "true", "on", "yes"].includes(raw.toLowerCase());
+  }
+  return !!raw;
+};
+
+const getAuthorizedEnvironment = (c) => {
+  const user = c.get("currentUser");
+  const id = Number(c.req.param("id"));
+  if (!Number.isFinite(id)) {
+    return { error: c.text("Invalid environment id", 400) };
+  }
+  const envFile = EnvironmentFileModel.findById(id);
+  if (!envFile) {
+    return { error: c.text("Environment not found", 404) };
+  }
+  if (!EnvironmentFileModel.canAccess(user, envFile)) {
+    return { error: c.text("Forbidden", 403) };
+  }
+  return { envFile };
+};
+
+const parseJsonBody = async (c) => {
+  try {
+    return await c.req.json();
+  } catch (_) {
+    return null;
+  }
+};
+
+router.post(
+  "/admin/environments",
+  requireSuperAdmin(async (c) => {
+    const body = await c.req.parseBody();
+    if (!hasValidCsrfToken(c, body)) {
+      return c.text("Invalid CSRF token.", 403);
+    }
+
+    const title = typeof body.title === "string" ? body.title.trim() : "";
+    const description = typeof body.description === "string" ? body.description.trim() : "";
+    const filePath = typeof body.filePath === "string" ? body.filePath.trim() : "";
+    const groupId = parseGroupId(body.groupId);
+    const rawServerId = parseServerId(body.serverId);
+    const serverSelection = resolveFileServerSelection(rawServerId);
+    const isActive = activeFromBody(body.isActive);
+
+    if (!title || !filePath) {
+      return renderEnvironmentForm(c, {
+        title: "Create environment",
+        formAction: "/admin/environments",
+        submitLabel: "Create environment",
+        titleValue: title,
+        descriptionValue: description,
+        filePathValue: filePath,
+        groupId,
+        serverId: rawServerId,
+        isActive,
+        error: "Title and file path are required.",
+      });
+    }
+
+    if (groupId !== null && !GroupModel.findById(groupId)) {
+      return renderEnvironmentForm(c, {
+        title: "Create environment",
+        formAction: "/admin/environments",
+        submitLabel: "Create environment",
+        titleValue: title,
+        descriptionValue: description,
+        filePathValue: filePath,
+        groupId,
+        serverId: rawServerId,
+        isActive,
+        error: "Selected group does not exist.",
+      });
+    }
+
+    if (serverSelection.error) {
+      return renderEnvironmentForm(c, {
+        title: "Create environment",
+        formAction: "/admin/environments",
+        submitLabel: "Create environment",
+        titleValue: title,
+        descriptionValue: description,
+        filePathValue: filePath,
+        groupId,
+        serverId: rawServerId,
+        isActive,
+        error: serverSelection.error,
+      });
+    }
+
+    const currentUser = c.get("currentUser");
+    EnvironmentFileModel.create({
+      serverId: serverSelection.serverId,
+      groupId,
+      title,
+      description,
+      filePath,
+      isActive,
+      createdByUserId: currentUser?.id ?? null,
+    });
+
+    return c.redirect("/admin/environments?notice=created");
+  }),
+);
+
+router.get(
+  "/admin/environments/:id/edit",
+  requireSuperAdmin((c) => {
+    const id = Number(c.req.param("id"));
+    const envFile = EnvironmentFileModel.findById(id);
+    if (!envFile) {
+      return renderEnvironmentList(c, { error: "Environment not found." });
+    }
+    return renderEnvironmentForm(c, {
+      title: "Edit environment",
+      formAction: `/admin/environments/${envFile.id}`,
+      submitLabel: "Save changes",
+      titleValue: envFile.title,
+      descriptionValue: envFile.description,
+      filePathValue: envFile.filePath,
+      groupId: envFile.groupId,
+      serverId: envFile.serverId,
+      isActive: envFile.isActive,
+    });
+  }),
+);
+
+router.post(
+  "/admin/environments/:id",
+  requireSuperAdmin(async (c) => {
+    const id = Number(c.req.param("id"));
+    const envFile = EnvironmentFileModel.findById(id);
+    if (!envFile) {
+      return renderEnvironmentList(c, { error: "Environment not found." });
+    }
+
+    const body = await c.req.parseBody();
+    if (!hasValidCsrfToken(c, body)) {
+      return c.text("Invalid CSRF token.", 403);
+    }
+
+    const title = typeof body.title === "string" ? body.title.trim() : "";
+    const description = typeof body.description === "string" ? body.description.trim() : "";
+    const filePath = typeof body.filePath === "string" ? body.filePath.trim() : "";
+    const groupId = parseGroupId(body.groupId);
+    const rawServerId = parseServerId(body.serverId);
+    const serverSelection = resolveFileServerSelection(rawServerId);
+    const isActive = activeFromBody(body.isActive);
+
+    if (!title || !filePath) {
+      return renderEnvironmentForm(c, {
+        title: "Edit environment",
+        formAction: `/admin/environments/${envFile.id}`,
+        submitLabel: "Save changes",
+        titleValue: title,
+        descriptionValue: description,
+        filePathValue: filePath,
+        groupId,
+        serverId: rawServerId,
+        isActive,
+        error: "Title and file path are required.",
+      });
+    }
+
+    if (groupId !== null && !GroupModel.findById(groupId)) {
+      return renderEnvironmentForm(c, {
+        title: "Edit environment",
+        formAction: `/admin/environments/${envFile.id}`,
+        submitLabel: "Save changes",
+        titleValue: title,
+        descriptionValue: description,
+        filePathValue: filePath,
+        groupId,
+        serverId: rawServerId,
+        isActive,
+        error: "Selected group does not exist.",
+      });
+    }
+
+    if (serverSelection.error) {
+      return renderEnvironmentForm(c, {
+        title: "Edit environment",
+        formAction: `/admin/environments/${envFile.id}`,
+        submitLabel: "Save changes",
+        titleValue: title,
+        descriptionValue: description,
+        filePathValue: filePath,
+        groupId,
+        serverId: rawServerId,
+        isActive,
+        error: serverSelection.error,
+      });
+    }
+
+    EnvironmentFileModel.update(envFile.id, {
+      serverId: serverSelection.serverId,
+      groupId,
+      title,
+      description,
+      filePath,
+      isActive,
+    });
+
+    return c.redirect("/admin/environments?notice=updated");
+  }),
+);
+
+router.post(
+  "/admin/environments/:id/delete",
+  requireSuperAdmin(async (c) => {
+    const body = await c.req.parseBody();
+    if (!hasValidCsrfToken(c, body)) {
+      return c.text("Invalid CSRF token.", 403);
+    }
+    const id = Number(c.req.param("id"));
+    const envFile = EnvironmentFileModel.findById(id);
+    if (!envFile) {
+      return renderEnvironmentList(c, { error: "Environment not found." });
+    }
+    EnvironmentFileModel.remove(envFile.id);
+    return c.redirect("/admin/environments?notice=deleted");
+  }),
+);
+
+router.get(
+  "/environments/:id/edit",
+  requireAuth(async (c) => {
+    const { envFile, error } = getAuthorizedEnvironment(c);
+    if (error) return error;
+
+    const user = c.get("currentUser");
+    let lines = [];
+    let baseHash = "";
+    let loadError = "";
+
+    try {
+      const rawText = await readEnvironmentFileText(envFile);
+      baseHash = hashEnvText(rawText);
+      lines = parseEnvText(rawText);
+    } catch (err) {
+      loadError = `Failed to load environment file: ${err.message}`;
+    }
+
+    const html = renderPage("pages/environments/editor", {
+      ...basePageData(user),
+      csrfToken: getCsrfToken(c),
+      pageTitle: `${envFile.title} · Environment Variables`,
+      environmentId: envFile.id,
+      environmentTitle: envFile.title,
+      environmentDescription: envFile.description || "",
+      filePath: envFile.filePath,
+      serverLabel: envFile.serverName || "This Server",
+      historyUrl: `/environments/${envFile.id}/history`,
+      baseHash,
+      initialLinesJson: toSafeScriptJson(lines),
+      loadError,
+      canSave: !loadError,
+    });
+    return c.html(html);
+  }),
+);
+
+router.get(
+  "/environments/:id/history",
+  requireAuth((c) => {
+    const { envFile, error } = getAuthorizedEnvironment(c);
+    if (error) return error;
+    const updates = EnvironmentFileUpdateModel.listByEnvironment(envFile.id, { limit: 100 });
+    return renderEnvironmentHistory(c, envFile, updates);
+  }),
+);
+
+router.post(
+  "/environments/:id/save",
+  requireAuth(async (c) => {
+    const { envFile, error } = getAuthorizedEnvironment(c);
+    if (error) return error;
+
+    const body = await parseJsonBody(c);
+    if (!body) {
+      return c.json({ error: "Request body must be JSON." }, 400);
+    }
+    if (!hasValidCsrfToken(c, body)) {
+      return c.json({ error: "Invalid CSRF token." }, 403);
+    }
+
+    const user = c.get("currentUser");
+    const password = typeof body.password === "string" ? body.password : "";
+    if (!password) {
+      return c.json({ error: "Your password is required to save this environment." }, 403);
+    }
+    const userWithPassword = UserModel.findByIdWithPassword(user.id);
+    if (!userWithPassword || !verifyPassword(password, userWithPassword.passwordHash)) {
+      return c.json({ error: "Incorrect password." }, 403);
+    }
+
+    const baseHash = typeof body.baseHash === "string" ? body.baseHash : "";
+    let currentText = "";
+    let previousLines = [];
+    try {
+      currentText = await readEnvironmentFileText(envFile);
+      previousLines = parseEnvText(currentText);
+    } catch (err) {
+      return c.json({ error: `Failed to read current environment file: ${err.message}` }, 400);
+    }
+
+    const currentHash = hashEnvText(currentText);
+    if (baseHash !== currentHash) {
+      return c.json(
+        {
+          error: "Environment file changed after you opened it. Reload before saving.",
+          current_hash: currentHash,
+        },
+        409,
+      );
+    }
+
+    let nextText = "";
+    let nextLines = [];
+    try {
+      nextText = serializeEnvLines(body.lines);
+      nextLines = parseEnvText(nextText);
+    } catch (err) {
+      return c.json({ error: "Environment validation failed.", details: [err.message] }, 400);
+    }
+
+    const nextHash = hashEnvText(nextText);
+    const changes = buildRedactedChanges(previousLines, nextLines);
+    if (changes.length === 0) {
+      return c.json({
+        success: true,
+        updated_at: new Date().toISOString(),
+        message: "No environment changes detected.",
+        changes: [],
+        current_hash: currentHash,
+      });
+    }
+
+    try {
+      await writeEnvironmentFileText(envFile, nextText);
+    } catch (err) {
+      return c.json({ error: `Failed to write environment file: ${err.message}` }, 500);
+    }
+
+    const updatedAt = new Date().toISOString();
+    EnvironmentFileUpdateModel.create({
+      environmentFileId: envFile.id,
+      userId: user.id,
+      environmentTitle: envFile.title,
+      environmentFilePath: envFile.filePath,
+      serverName: envFile.serverName || "This Server",
+      previousHash: currentHash,
+      currentHash: nextHash,
+      changes,
+    });
+
+    return c.json({
+      success: true,
+      updated_at: updatedAt,
+      message: `Environment successfully updated on ${updatedAt}`,
+      changes,
+      current_hash: nextHash,
+    });
+  }),
+);
+
 router.post(
   "/admin/logs",
   requireSuperAdmin(async (c) => {
@@ -1150,7 +1718,7 @@ router.post(
     const allowClear = allowClearFromBody(body.allowClear);
     const groupId = parseGroupId(body.groupId);
     const rawServerId = parseServerId(body.serverId);
-    const serverSelection = resolveLogServerSelection(rawServerId);
+    const serverSelection = resolveFileServerSelection(rawServerId);
 
     if (!name || !filePath || tailLines === null) {
       return renderLogForm(c, {
@@ -1258,7 +1826,7 @@ router.post(
     const allowClear = allowClearFromBody(body.allowClear);
     const groupId = parseGroupId(body.groupId);
     const rawServerId = parseServerId(body.serverId);
-    const serverSelection = resolveLogServerSelection(rawServerId);
+    const serverSelection = resolveFileServerSelection(rawServerId);
 
     if (!name || !filePath || tailLines === null) {
       return renderLogForm(c, {

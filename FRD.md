@@ -1,5 +1,5 @@
 # Functional Requirements Document (FRD)
-## Bahotasu — Log Monitoring Tool
+## Bahotasu — Operations Dashboard
 
 | Field | Value |
 |---|---|
@@ -7,7 +7,7 @@
 | **Version** | 1.0.0 |
 | **Document Status** | Draft |
 | **Author** | Agus |
-| **Last Updated** | 2026-05-04 |
+| **Last Updated** | 2026-05-20 |
 
 ---
 
@@ -25,6 +25,7 @@
    - 5.5 Log Viewer
    - 5.6 Profile Management
    - 5.7 Command Runner
+   - 5.8 Environment Variables
 6. [Data Models](#6-data-models)
 7. [Routes Reference](#7-routes-reference)
 8. [Non-Functional Requirements](#8-non-functional-requirements)
@@ -35,9 +36,9 @@
 
 ## 1. Overview
 
-**Bahotasu** is a lightweight, role-aware, server-rendered operations dashboard built for development teams. It allows developers to inspect live application logs directly from a browser without needing SSH access, and to trigger pre‑approved shell commands on local or remote servers — all served through a fast, no-SPA interface backed by SQLite.
+**Bahotasu** is a lightweight, role-aware, server-rendered operations dashboard built for development teams. It allows developers to inspect live application logs directly from a browser without needing SSH access, trigger pre‑approved shell commands on local or remote servers, and safely edit admin-approved `.env` files through a structured Environment Variables manager — all served through a fast, no-SPA interface backed by SQLite.
 
-The system supports multiple projects ("groups"), multi-user access with role-based visibility, log interactions (tail viewing, full-file search, optional clearing), and a secure **Command Runner** module for asynchronous command execution with encrypted SSH credentials, re‑authentication gating, and an in‑process worker queue.
+The system supports multiple projects ("groups"), multi-user access with role-based visibility, log interactions (tail viewing, full-file search, optional clearing), a secure **Command Runner** module for asynchronous command execution with encrypted SSH credentials, and a JSON-backed Environment Variables editor with re-authentication, conflict detection, and redacted history.
 
 ---
 
@@ -49,6 +50,7 @@ The system supports multiple projects ("groups"), multi-user access with role-ba
 - Enforce role-based access so users only see logs relevant to their assigned project group.
 - Give a superadmin a CRUD interface to manage users, groups, and registered log files.
 - Provide a secure command runner for triggering pre‑approved shell commands on local or remote servers.
+- Provide a structured Environment Variables manager for editing admin-approved `.env` files without exposing raw free-form writes.
 - Avoid SPA complexity — all pages are server-rendered (Mustache) for performance and simplicity.
 - Support multiple projects simultaneously by grouping log entries.
 
@@ -62,6 +64,7 @@ The system supports multiple projects ("groups"), multi-user access with role-ba
 - Real‑time command output streaming is out of scope; output is captured and returned in full after completion.
 - Scheduled or recurring command execution is out of scope.
 - Arbitrary user‑supplied arguments to commands are out of scope.
+- This is **not** a secrets vault. Environment update history stores redacted change metadata, not plaintext secret values.
 
 ---
 
@@ -91,6 +94,9 @@ There are two roles in the system: **Superadmin** and **User**.
 | View all execution history | ✅ | ❌ |
 | Manage servers used by remote logs and commands (CRUD + test connection) | ✅ | ❌ |
 | Manage commands (CRUD) | ✅ | ❌ |
+| Manage environment file registrations (CRUD) | ✅ | ❌ |
+| Edit active environment files assigned to their groups | ✅ | ✅ |
+| View environment update history for accessible files | ✅ | ✅ |
 | Be created or edited via the UI | ❌ | ✅ |
 | Be created via the CLI seeder | ✅ | ❌ |
 
@@ -118,7 +124,8 @@ There are two roles in the system: **Superadmin** and **User**.
 │  ┌────────────────────▼─────────────────────┐   │
 │  │  Models (Users, Groups, Logs, Sessions,  │   │
 │  │  UserGroups, Servers, Commands,          │   │
-│  │  CommandExecutions)                      │   │
+│  │  CommandExecutions, EnvironmentFiles,    │   │
+│  │  EnvironmentFileUpdates)                 │   │
 │  └────────────────────┬─────────────────────┘   │
 │                       │                         │
 │  ┌────────────────────▼─────────────────────┐   │
@@ -146,6 +153,7 @@ There are two roles in the system: **Superadmin** and **User**.
 **Views:** Mustache templates + Bootstrap 5  
 **Log I/O:** Native Unix commands (`tail`, `grep`, `sed`, `truncate`) via `child_process.spawn` for local logs, or `ssh2` pooled SSH sessions for remote logs  
 **Command Execution:** `child_process.spawn` (local) or `ssh2` npm package (remote SSH)  
+**Environment File I/O:** Local filesystem writes or remote SSH/SFTP temp-file writes followed by rename
 **Encryption:** AES‑256‑GCM via Node.js `crypto` for SSH credentials at rest  
 **Worker:** In‑process `setInterval` polling `command_executions` table every 1 second  
 
@@ -447,7 +455,7 @@ There are two roles in the system: **Superadmin** and **User**.
 #### FR-SRV-05 — Delete Server
 
 - `POST /admin/servers/:id/delete` removes the server record.
-- Commands referencing this server get their `server_id` set to `NULL` (ON DELETE SET NULL).
+- Commands, logs, and environments referencing this server get their `server_id` set to `NULL` (ON DELETE SET NULL).
 - "This Server" is undeletable.
 
 #### FR-SRV-06 — Test Connection
@@ -565,6 +573,76 @@ There are two roles in the system: **Superadmin** and **User**.
 
 ---
 
+### 5.8 Environment Variables
+
+> Environment registration CRUD requires **Superadmin**.
+> Environment file editing and history viewing are accessible to authenticated users with group-based access.
+
+#### FR-ENV-ADM-01 — List Environment Registrations
+
+- `GET /admin/environments` displays all registered editable environment files.
+- Each row shows title, description, target server, group, active status, file path, and actions.
+- Deleting a registration never deletes the actual `.env` file.
+
+#### FR-ENV-ADM-02 — Create / Edit Environment Registration
+
+- `GET /admin/environments/new` renders the create form.
+- `POST /admin/environments` creates a registration.
+- `GET /admin/environments/:id/edit` renders the edit form.
+- `POST /admin/environments/:id` updates metadata.
+- Required fields: **title**, **file path**.
+- Optional fields: **description**, **group**, **target server**, **active**.
+- The default target is **This Server**, stored as `environment_files.server_id = NULL`.
+- The admin form does not validate file existence; read/write failures are shown on the editor page.
+
+#### FR-ENV-USER-01 — Dashboard Environment Section
+
+- `GET /dashboard` includes an **Environment Variables** section at the bottom when accessible active environments exist.
+- Superadmins see all active environments.
+- Regular users see active ungrouped environments and active environments assigned to their groups.
+- Each environment row/card links to **Edit** and **History**.
+
+#### FR-ENV-USER-02 — Structured Editor
+
+- `GET /environments/:id/edit` reads the target env file and renders a structured line editor.
+- Supported line types:
+  - Blank line.
+  - Comment: `#TEXT` without `=`.
+  - Enabled variable: `KEY=value`.
+  - Disabled variable: `#KEY=value`.
+- Unsupported existing lines cause a line-numbered error and disable saving.
+- Empty environment files show `Environment variable is empty` in the editor.
+- Users can add/edit/delete variables and comments through modals; raw env text is preview-only in a read-only modal.
+
+#### FR-ENV-USER-03 — Env Validation and Serialization
+
+- Variable names must match `^[A-Za-z_][A-Za-z0-9_]*$`.
+- Comments cannot contain `=` or newlines.
+- Values cannot contain newlines.
+- Duplicate enabled variable names are rejected; disabled alternatives may share a name with an enabled variable.
+- The backend serializes canonical env text:
+  - Integer and float literals are written without quotes.
+  - All other values are written as double-quoted strings with escaped quotes/backslashes.
+  - Disabled variables are written as `#KEY=value`.
+
+#### FR-ENV-USER-04 — Save Contract
+
+- `POST /environments/:id/save` accepts JSON only; raw env text is not accepted.
+- Required JSON fields: `_csrf`, `password`, `baseHash`, `lines`.
+- The current user's password must verify before saving.
+- The backend re-reads the target file and compares `baseHash` with the current SHA-256 hash.
+- If the file changed after page load, the endpoint returns HTTP 409 and requires reload.
+- Success returns `{ success, updated_at, message, changes, current_hash }`.
+- Validation/read/write failures return JSON errors with appropriate HTTP status.
+
+#### FR-ENV-AUD-01 — Redacted Update History
+
+- `GET /environments/:id/history` shows save history for an accessible environment file.
+- Each successful save records updater, timestamp, denormalized environment title/path/server, previous/current hashes, and a redacted change list.
+- Plaintext old/new variable values are never stored in SQLite history.
+
+---
+
 ## 6. Data Models
 
 ### Users
@@ -679,6 +757,36 @@ Unique constraint on `(user_id, group_id)`.
 | `server_id` | INTEGER | Denormalised for filtering |
 | `command_name` | TEXT | Denormalised for display |
 
+### Environment Files
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | |
+| `server_id` | INTEGER FK | References `servers(id)`; NULL = local This Server |
+| `group_id` | INTEGER FK | References `groups(id)`; NULL = everyone |
+| `title` | TEXT NOT NULL | Dashboard/admin label |
+| `description` | TEXT | Optional |
+| `file_path` | TEXT NOT NULL | Path to target `.env` file on the selected server |
+| `is_active` | INTEGER DEFAULT 1 | 1 = visible/editable to users, 0 = disabled |
+| `created_by_user_id` | INTEGER FK | Superadmin who created the registration |
+| `created_at` | TEXT | |
+| `updated_at` | TEXT | |
+
+### Environment File Updates
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | |
+| `environment_file_id` | INTEGER FK | References `environment_files(id)` ON DELETE SET NULL |
+| `user_id` | INTEGER FK | User who saved the change |
+| `environment_title` | TEXT | Denormalized title for history after registration changes |
+| `environment_file_path` | TEXT | Denormalized path for history |
+| `server_name` | TEXT | Denormalized target server label |
+| `previous_hash` | TEXT | SHA-256 hash before save |
+| `current_hash` | TEXT | SHA-256 hash after save |
+| `changes_json` | TEXT | Redacted JSON change list |
+| `created_at` | TEXT | Save timestamp |
+
 ---
 
 ## 7. Routes Reference
@@ -719,6 +827,15 @@ Unique constraint on `(user_id, group_id)`.
 | GET | `/logs/:id/content` | Auth + Group | Fetch log tail (plain text) |
 | GET | `/logs/:id/search` | Auth + Group | Log search page |
 | POST | `/logs/:id/clear` | Auth + Group | Clear log file |
+| GET | `/admin/environments` | Superadmin | List environment registrations |
+| GET | `/admin/environments/new` | Superadmin | New environment form |
+| POST | `/admin/environments` | Superadmin | Create environment registration |
+| GET | `/admin/environments/:id/edit` | Superadmin | Edit environment registration |
+| POST | `/admin/environments/:id` | Superadmin | Update environment registration |
+| POST | `/admin/environments/:id/delete` | Superadmin | Delete environment registration |
+| GET | `/environments/:id/edit` | Auth + Group | Structured environment editor |
+| POST | `/environments/:id/save` | Auth + Group + Re-auth | Save structured environment JSON |
+| GET | `/environments/:id/history` | Auth + Group | Redacted environment update history |
 | GET | `/commands` | Auth | Command runner dashboard |
 | GET | `/commands/history` | Auth | All execution history |
 | POST | `/commands/:id/execute` | Auth + Group | Submit command for execution |
@@ -765,6 +882,10 @@ Internal API routes exist under `/api` (referenced in `/src/routes/api/`) for fu
 | NFR-CMD-03 | Reliability | The worker gracefully handles DB connection errors and continues polling. Failed executions are permanently recorded. |
 | NFR-CMD-04 | Performance | Command execution does not block HTTP responses. Execution is delegated to the in‑process worker off the request cycle. |
 | NFR-CMD-05 | Portability | SSH connections use the `ssh2` npm package (no external SSH binary). Local execution uses `child_process.spawn`. |
+| NFR-ENV-01 | Security | Environment saves require JSON, CSRF, group access, and current-password re-authentication. |
+| NFR-ENV-02 | Security | Environment history stores redacted values only; plaintext secret values are not duplicated into SQLite. |
+| NFR-ENV-03 | Reliability | Environment saves compare a SHA-256 base hash before writing to prevent overwriting concurrent edits. |
+| NFR-ENV-04 | Reliability | Environment writes use a temp file and rename where possible; write errors are surfaced to the user. |
 
 ---
 
@@ -773,9 +894,10 @@ Internal API routes exist under `/api` (referenced in `/src/routes/api/`) for fu
 - **Local and SSH log targets only.** The application reads local logs from the filesystem of the server it runs on, and remote logs from registered SSH servers. Remote log sources require reachable SSH access from the Bahotasu host.
 - **SQLite is the only database.** There is no provision for PostgreSQL, MySQL, or any other database engine.
 - **No email integration.** Password resets, invitations, and notifications are not supported. Superadmins must set initial passwords manually.
-- **No audit logging.** Actions taken in the UI (user creation, log deletion, etc.) are not tracked in a separate audit trail.
+- **Limited audit logging.** Command executions and environment saves have history records. Other UI actions (user creation, log deletion, etc.) are not tracked in a separate audit trail.
 - **Unix-only log I/O.** The system shells out to `tail`, `grep`, `sed`, and `truncate`. It is not compatible with Windows without a POSIX emulation layer.
 - **Log files must be accessible** by the OS user running the Node.js process for local logs, or by the configured SSH user for remote logs. Permission errors are surfaced to the user as runtime errors in the viewer.
+- **Environment files must be readable and writable** by the OS user running Bahotasu for local files, or by the configured SSH user for remote files. Permission errors are surfaced on the editor/save response.
 - **Single superadmin entry point.** The CLI seed script is the only way to create or modify superadmin accounts. This is by design to prevent privilege escalation via the web UI.
 - **Command execution relies on the OS user** running Bahotasu having necessary permissions on the target server (e.g., to run `sudo` without password if commands require it).
 - **The worker and HTTP server share the same Node.js process.** This is acceptable for low‑volume internal tools.
@@ -792,15 +914,17 @@ Internal API routes exist under `/api` (referenced in `/src/routes/api/`) for fu
 | **Log Entry / Log Registration** | A record in the `logs` table representing a pointer to a local or remote log file, with metadata like target server, tail lines, and group association. Not the log content itself. |
 | **Group** | A project or team namespace used to bundle related log entries and control which users have access to them. |
 | **Superadmin** | The highest privilege role. Created via CLI only. Has unrestricted access to all features and all log files. |
-| **User** | A regular authenticated account. Access to logs is scoped to their assigned groups plus any ungrouped logs. |
+| **User** | A regular authenticated account. Access to logs, commands, and environments is scoped to assigned groups plus ungrouped records. |
 | **Slug** | A URL-safe, lowercase, alphanumeric identifier for a group. Set at creation time and immutable. |
 | **Tail Lines** | The number of lines read from the end of a log file during a content fetch. Configurable per log entry (range: 10–10,000). |
 | **Allow Clear** | A per-log flag that, when enabled, permits authenticated users with access to truncate the log file to zero bytes via the UI. |
 | **CSRF Token** | A per-session token embedded in all forms to prevent cross-site request forgery attacks. |
 | **Session** | A database-backed authentication record tied to a user and a secure random token stored in a browser cookie. |
 | **Command** | A named, pre‑approved shell command template defined by a superadmin, linked to a server and optionally a group. No user input is ever interpolated. |
-| **Server** | A target for command execution and remote log reading: either the local machine ("This Server") or a remote SSH host with encrypted credentials. |
+| **Server** | A target for command execution, remote log reading, and remote environment editing: either the local machine ("This Server") or a remote SSH host with encrypted credentials. |
 | **Command Execution** | A row in the `command_executions` queue table representing one invocation of a command by a user, tracking status, output, and audit metadata. |
+| **Environment File / Environment Registration** | A record in `environment_files` representing an admin-approved `.env` file that can be edited through the structured Environment Variables UI. |
+| **Environment Update** | A redacted audit row in `environment_file_updates` recording who saved an environment file, when, hashes before/after, and masked changed lines. |
 | **Worker** | An in‑process background `setInterval` loop that processes pending command executions one at a time. |
 | **Encryption Key** | A 256‑bit AES‑GCM secret stored in `.env` (`BAHOTASU_ENC_KEY`), auto‑generated on first startup. Used to encrypt/decrypt SSH credentials. |
 | **Re‑authentication** | Forcing the user to re‑enter their Bahotasu password before executing a command marked with `password_required = true`. |

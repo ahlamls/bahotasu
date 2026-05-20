@@ -1,0 +1,72 @@
+<!--
+  Environment Management Form - creates/edits the metadata for one editable .env file.
+  The actual file content is edited only from the user-facing structured editor.
+  Added by OpenAI Codex GPT-5 / 2026-05-20.
+-->
+<section class="mb-4">
+  <p class="text-secondary small text-uppercase mb-1">Administration</p>
+  <h1 class="h4 fw-semibold">{{title}}</h1>
+</section>
+
+{{#error}}
+<div class="alert alert-danger" role="alert">{{error}}</div>
+{{/error}}
+
+<div class="card-lite p-4">
+  <form method="post" action="{{formAction}}" class="d-grid gap-3">
+    <input type="hidden" name="_csrf" value="{{csrfToken}}" />
+
+    <div class="row g-3">
+      <div class="col-12 col-md-6">
+        <label class="form-label small text-uppercase text-secondary" for="title">Title</label>
+        <input type="text" id="title" name="title" class="form-control" value="{{titleValue}}" required maxlength="200" />
+      </div>
+      <div class="col-12 col-md-6">
+        <label class="form-label small text-uppercase text-secondary" for="groupId">Group access</label>
+        <select id="groupId" name="groupId" class="form-select">
+          <option value="" {{#noGroupSelected}}selected{{/noGroupSelected}}>Everyone</option>
+          {{#groups}}
+          <option value="{{id}}" {{#selected}}selected{{/selected}}>{{name}}</option>
+          {{/groups}}
+        </select>
+        <div class="form-text">Choose a group or leave empty for all users.</div>
+      </div>
+    </div>
+
+    <div>
+      <label class="form-label small text-uppercase text-secondary" for="description">Description</label>
+      <textarea id="description" name="description" rows="2" class="form-control">{{descriptionValue}}</textarea>
+    </div>
+
+    <div>
+      <label class="form-label small text-uppercase text-secondary" for="filePath">Environment file path</label>
+      <input type="text" id="filePath" name="filePath" class="form-control" value="{{filePathValue}}" required />
+    </div>
+
+    <div class="row g-3">
+      <div class="col-12 col-md-6">
+        <label class="form-label small text-uppercase text-secondary" for="serverId">Target server</label>
+        <select id="serverId" name="serverId" class="form-select">
+          <option value="" {{#noServerSelected}}selected{{/noServerSelected}}>This Server</option>
+          {{#servers}}
+          {{#isRemote}}
+          <option value="{{id}}" {{#selected}}selected{{/selected}}>{{name}}</option>
+          {{/isRemote}}
+          {{/servers}}
+        </select>
+        <div class="form-text">Remote files are read and written over SSH/SFTP using saved credentials.</div>
+      </div>
+      <div class="col-12 col-md-6 d-flex align-items-end">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="isActive" name="isActive" value="1" {{#isActive}}checked{{/isActive}} />
+          <label class="form-check-label" for="isActive">Active</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="d-flex justify-content-between flex-wrap gap-2">
+      <a href="/admin/environments" class="btn btn-outline-secondary">Cancel</a>
+      <button type="submit" class="btn btn-primary">{{submitLabel}}</button>
+    </div>
+  </form>
+</div>
