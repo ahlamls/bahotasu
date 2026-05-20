@@ -19,6 +19,40 @@ export const ENV_VARIABLE_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const NUMBER_LITERAL_PATTERN = /^-?\d+(?:\.\d+)?$/;
 
 /**
+ * Removes inline comments from unquoted parts of an existing env value.
+ * Example: ENVIRONMENT="staging" #staging or live -> "staging".
+ */
+const stripInlineComment = (value) => {
+  let quote = "";
+  let escaped = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = "";
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === "#" && (index === 0 || /\s/.test(value[index - 1]))) {
+      return value.slice(0, index).trimEnd();
+    }
+  }
+
+  return value;
+};
+
+/**
  * Hashes raw file content so saves can reject stale browser edits.
  */
 export const hashEnvText = (text) =>
@@ -41,7 +75,7 @@ const splitEnvLines = (text) => {
  * Fully quoted strings are unescaped for editing; unquoted values are kept as typed.
  */
 const parseValue = (rawValue, lineNumber) => {
-  const value = rawValue.trim();
+  const value = stripInlineComment(rawValue).trim();
   if (value.startsWith('"') || value.startsWith("'")) {
     const quote = value[0];
     if (!value.endsWith(quote) || value.length === 1) {
@@ -60,12 +94,15 @@ const parseValue = (rawValue, lineNumber) => {
  */
 const parseEnvLine = (line, index) => {
   const lineNumber = index + 1;
-  if (line === "") {
+  const trimmedLine = line.trim();
+  if (trimmedLine === "") {
     return { type: "blank" };
   }
 
-  if (line.startsWith("#")) {
-    const body = line.slice(1);
+  if (trimmedLine.startsWith("#")) {
+    // Existing files may indent comments or disabled variables; the editor
+    // normalizes them back to leading "#" when saving.
+    const body = trimmedLine.slice(1);
     if (body.includes("=")) {
       const separatorIndex = body.indexOf("=");
       // Existing env files may contain "KEY = value"; normalize it on parse so
@@ -85,15 +122,15 @@ const parseEnvLine = (line, index) => {
     return { type: "comment", text: body };
   }
 
-  if (!line.includes("=")) {
+  if (!trimmedLine.includes("=")) {
     throw new Error(`Line ${lineNumber}: non-comment lines must use KEY=value.`);
   }
 
-  const separatorIndex = line.indexOf("=");
+  const separatorIndex = trimmedLine.indexOf("=");
   // Accept whitespace around "=" in existing files, then serialize without it.
   // Updated by OpenAI Codex GPT-5 / 2026-05-20 for tolerant env-file loading.
-  const name = line.slice(0, separatorIndex).trim();
-  const rawValue = line.slice(separatorIndex + 1);
+  const name = trimmedLine.slice(0, separatorIndex).trim();
+  const rawValue = trimmedLine.slice(separatorIndex + 1);
   if (!ENV_VARIABLE_NAME_PATTERN.test(name)) {
     throw new Error(`Line ${lineNumber}: variable name is invalid.`);
   }
