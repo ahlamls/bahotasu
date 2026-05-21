@@ -608,6 +608,7 @@ There are two roles in the system: **Superadmin** and **User**.
 - Supported line types:
   - Blank line.
   - Comment: `#TEXT` without `=`.
+  - Read-only separator comment: comment lines with repeated `=` characters, such as `# =====`.
   - Enabled variable: `KEY=value`.
   - Disabled variable: `#KEY=value`.
 - Unsupported existing lines cause a line-numbered error and disable saving.
@@ -618,6 +619,7 @@ There are two roles in the system: **Superadmin** and **User**.
 
 - Variable names must match `^[A-Za-z_][A-Za-z0-9_]*$`.
 - Comments cannot contain `=` or newlines.
+- Read-only separator comments are preserved and displayed as comments, but cannot be edited or deleted through the editor.
 - Values cannot contain newlines.
 - Duplicate enabled variable names are rejected; disabled alternatives may share a name with an enabled variable.
 - The backend serializes canonical env text:

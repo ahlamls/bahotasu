@@ -70,6 +70,8 @@ const splitEnvLines = (text) => {
   return lines;
 };
 
+const countEquals = (value) => (String(value).match(/=/g) || []).length;
+
 /**
  * Parses a supported variable value from an existing env line.
  * Fully quoted strings are unescaped for editing; unquoted values are kept as typed.
@@ -104,6 +106,9 @@ const parseEnvLine = (line, index) => {
     // normalizes them back to leading "#" when saving.
     const body = trimmedLine.slice(1);
     if (body.includes("=")) {
+      if (countEquals(stripInlineComment(body)) > 1) {
+        return { type: "readonly_comment", text: body };
+      }
       const separatorIndex = body.indexOf("=");
       // Existing env files may contain "KEY = value"; normalize it on parse so
       // saving rewrites the file to canonical "KEY=value" formatting.
@@ -124,6 +129,10 @@ const parseEnvLine = (line, index) => {
 
   if (!trimmedLine.includes("=")) {
     throw new Error(`Line ${lineNumber}: non-comment lines must use KEY=value.`);
+  }
+
+  if (countEquals(stripInlineComment(trimmedLine)) > 1) {
+    throw new Error(`Line ${lineNumber}: variable lines cannot contain more than one "=".`);
   }
 
   const separatorIndex = trimmedLine.indexOf("=");
@@ -170,9 +179,9 @@ export const validateEnvLines = (lines) => {
 
     if (line.type === "blank") return;
 
-    if (line.type === "comment") {
+    if (line.type === "comment" || line.type === "readonly_comment") {
       const text = typeof line.text === "string" ? line.text : "";
-      if (text.includes("=")) {
+      if (line.type === "comment" && text.includes("=")) {
         throw new Error(`Line ${lineNumber}: comments cannot contain "=".`);
       }
       if (text.includes("\n") || text.includes("\r")) {
@@ -215,6 +224,7 @@ const serializeValue = (value) => {
 
 const serializeLine = (line) => {
   if (line.type === "blank") return "";
+  if (line.type === "readonly_comment") return `#${line.text || ""}`;
   if (line.type === "comment") return `#${line.text || ""}`;
   const prefix = line.enabled === false ? "#" : "";
   return `${prefix}${line.name}=${serializeValue(line.value)}`;
@@ -232,14 +242,14 @@ export const serializeEnvLines = (lines) => {
 const lineLabel = (line) => {
   if (!line) return "";
   if (line.type === "variable") return line.name;
-  if (line.type === "comment") return line.text || "Comment";
+  if (line.type === "comment" || line.type === "readonly_comment") return line.text || "Comment";
   return "Blank line";
 };
 
 const maskValue = (line) => {
   if (!line) return "";
   if (line.type === "variable") return line.value === "" ? "(empty)" : "[redacted]";
-  if (line.type === "comment") return line.text || "";
+  if (line.type === "comment" || line.type === "readonly_comment") return line.text || "";
   return "";
 };
 
@@ -253,7 +263,7 @@ const normalizeForCompare = (line) => {
       enabled: line.enabled !== false,
     };
   }
-  if (line.type === "comment") {
+  if (line.type === "comment" || line.type === "readonly_comment") {
     return { type: "comment", text: line.text || "" };
   }
   return { type: "blank" };
@@ -285,6 +295,20 @@ export const buildRedactedChanges = (previousLines, nextLines) => {
   }
 
   return changes;
+};
+
+/**
+ * Prevents browser JSON from editing or deleting read-only separator comments.
+ * These lines preserve existing "# =====" style separators but cannot be changed in the UI.
+ */
+export const assertReadonlyCommentsUnchanged = (previousLines, nextLines) => {
+  previousLines.forEach((line, index) => {
+    if (line?.type !== "readonly_comment") return;
+    const next = nextLines[index];
+    if (!next || next.type !== "readonly_comment" || next.text !== line.text) {
+      throw new Error(`Line ${index + 1}: read-only comment separators cannot be changed.`);
+    }
+  });
 };
 
 const shellQuote = (value) => `'${String(value).replace(/'/g, "'\\''")}'`;

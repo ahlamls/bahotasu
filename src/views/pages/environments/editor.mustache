@@ -265,7 +265,9 @@
           enabled: line.enabled !== false,
         };
       }
-      if (line.type === "comment") return { type: "comment", text: line.text || "" };
+      if (line.type === "comment" || line.type === "readonly_comment") {
+        return { type: line.type, text: line.text || "" };
+      }
       return { type: "blank" };
     };
 
@@ -276,6 +278,7 @@
     };
     const serializeLine = (line) => {
       if (line.type === "blank") return "";
+      if (line.type === "readonly_comment") return `#${line.text || ""}`;
       if (line.type === "comment") return `#${line.text || ""}`;
       return `${line.enabled === false ? "#" : ""}${line.name}=${serializeValue(line.value)}`;
     };
@@ -284,7 +287,7 @@
     const lineLabel = (line) => {
       if (!line) return "";
       if (line.type === "variable") return line.name || "Variable";
-      if (line.type === "comment") return line.text || "Comment";
+      if (line.type === "comment" || line.type === "readonly_comment") return line.text || "Comment";
       return "Blank line";
     };
 
@@ -311,9 +314,10 @@
         const line = lines[index];
         const lineNumber = index + 1;
         if (line.type === "blank") continue;
-        if (line.type === "comment") {
-          if ((line.text || "").includes("=")) return `Line ${lineNumber}: comments cannot contain "=".`;
+        if (line.type === "comment" || line.type === "readonly_comment") {
           if ((line.text || "").includes("\n")) return `Line ${lineNumber}: comments cannot contain new lines.`;
+          if (line.type === "readonly_comment") continue;
+          if ((line.text || "").includes("=")) return `Line ${lineNumber}: comments cannot contain "=".`;
           continue;
         }
         if (line.type === "variable") {
@@ -356,7 +360,7 @@
       lines.forEach((line, index) => {
         const row = document.createElement("div");
         row.className = "d-flex align-items-center justify-content-between gap-3 border rounded p-3";
-        if (line.type === "comment") row.classList.add("bg-info-subtle");
+        if (line.type === "comment" || line.type === "readonly_comment") row.classList.add("bg-info-subtle");
         if (line.type === "variable" && line.enabled === false) row.classList.add("bg-light", "text-secondary");
 
         const body = document.createElement("div");
@@ -364,7 +368,7 @@
         const title = document.createElement("div");
         title.className = "text-break";
 
-        if (line.type === "comment") {
+        if (line.type === "comment" || line.type === "readonly_comment") {
           title.classList.add("fw-semibold");
           title.textContent = "\u{1F4AC} " + (line.text || "Comment");
         } else if (line.type === "variable") {
@@ -383,6 +387,12 @@
         }
 
         body.appendChild(title);
+        if (line.type === "readonly_comment") {
+          const status = document.createElement("div");
+          status.className = "small text-muted";
+          status.textContent = "read-only";
+          body.appendChild(status);
+        }
         if (line.type === "variable" && line.enabled === false) {
           const status = document.createElement("div");
           status.className = "small";
@@ -393,7 +403,7 @@
         const actions = document.createElement("div");
         actions.className = "d-flex gap-2 flex-shrink-0";
 
-        if (line.type !== "blank") {
+        if (line.type !== "blank" && line.type !== "readonly_comment") {
           const editBtn = document.createElement("button");
           editBtn.type = "button";
           editBtn.className = "btn btn-outline-secondary btn-sm";
@@ -402,15 +412,17 @@
           actions.appendChild(editBtn);
         }
 
-        const deleteBtn = document.createElement("button");
-        deleteBtn.type = "button";
-        deleteBtn.className = "btn btn-outline-danger btn-sm";
-        deleteBtn.textContent = "Delete";
-        deleteBtn.addEventListener("click", () => {
-          deletingIndex = index;
-          deleteLineModal.show();
-        });
-        actions.appendChild(deleteBtn);
+        if (line.type !== "readonly_comment") {
+          const deleteBtn = document.createElement("button");
+          deleteBtn.type = "button";
+          deleteBtn.className = "btn btn-outline-danger btn-sm";
+          deleteBtn.textContent = "Delete";
+          deleteBtn.addEventListener("click", () => {
+            deletingIndex = index;
+            deleteLineModal.show();
+          });
+          actions.appendChild(deleteBtn);
+        }
 
         row.appendChild(body);
         row.appendChild(actions);

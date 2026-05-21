@@ -108,16 +108,16 @@ const logoData = {
 
 const navItems = [
   { key: "home", label: "Home", href: "/dashboard" },
-  { key: "groups", label: "Group Management", href: "/admin/groups" },
-  { key: "users", label: "User Management", href: "/admin/users" },
-  { key: "logs", label: "Logs Management", href: "/admin/logs" },
+  { key: "groups", label: "Group", href: "/admin/groups" },
+  { key: "users", label: "User", href: "/admin/users" },
+  { key: "logs", label: "Logs", href: "/admin/logs" },
   // Environment Management is shared navigation for approved .env file editing.
   // Added by OpenAI Codex GPT-5 / 2026-05-20 for the Environment Variables feature.
-  { key: "environments", label: "Environment Management", href: "/admin/environments" },
+  { key: "environments", label: "Environment", href: "/admin/environments" },
   // Server Management is separate because server targets are shared by remote logs and commands.
   // Added by OpenAI Codex GPT-5 / 2026-05-19.
-  { key: "servers", label: "Server Management", href: "/admin/servers" },
-  { key: "commands", label: "Commands Management", href: "/admin/commands" },
+  { key: "servers", label: "Server", href: "/admin/servers" },
+  { key: "commands", label: "Commands", href: "/admin/commands" },
 ];
 
 const basePageData = (user, { activeNav } = {}) => {

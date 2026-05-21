@@ -30,6 +30,7 @@ import {
 } from "../../services/logSource.service.js";
 import {
   buildRedactedChanges,
+  assertReadonlyCommentsUnchanged,
   hashEnvText,
   parseEnvText,
   readEnvironmentFileText,
@@ -1660,6 +1661,7 @@ router.post(
     try {
       nextText = serializeEnvLines(body.lines);
       nextLines = parseEnvText(nextText);
+      assertReadonlyCommentsUnchanged(previousLines, nextLines);
     } catch (err) {
       return c.json({ error: "Environment validation failed.", details: [err.message] }, 400);
     }
