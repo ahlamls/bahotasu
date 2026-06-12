@@ -179,9 +179,16 @@ const splitIntoLogicalLines = (text) => {
 const countUnquotedEquals = (value) => {
   let count = 0;
   let inDoubleQuote = false;
+  let inSingleQuote = false;
+  let escaped = false;
   for (const ch of String(value)) {
-    if (ch === '"') inDoubleQuote = !inDoubleQuote;
-    if (ch === "=" && !inDoubleQuote) count += 1;
+    if (escaped) { escaped = false; continue; }
+    if (ch === "\\") { escaped = true; continue; }
+    if (inDoubleQuote) { if (ch === '"') inDoubleQuote = false; continue; }
+    if (inSingleQuote) { if (ch === "'") inSingleQuote = false; continue; }
+    if (ch === '"') { inDoubleQuote = true; continue; }
+    if (ch === "'") { inSingleQuote = true; continue; }
+    if (ch === "=") count += 1;
   }
   return count;
 };
