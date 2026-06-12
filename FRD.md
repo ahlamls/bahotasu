@@ -612,19 +612,32 @@ There are two roles in the system: **Superadmin** and **User**.
   - Enabled variable: `KEY=value`.
   - Disabled variable: `#KEY=value`.
 - Unsupported existing lines cause a line-numbered error and disable saving.
+- Multiline values are supported: the parser is quote-aware and treats newlines inside double-quoted strings as part of the value.
+- The editor shows a textarea for existing multiline values and a standard input for single-line/add operations.
+- Multiline values are displayed truncated to the first line with a `multiline` badge.
 - Empty environment files show `Environment variable is empty` in the editor.
 - Users can add/edit/delete variables and comments through modals; raw env text is preview-only in a read-only modal.
+- Variables with `# bahotasu-secret` inline comment flag are displayed as `KEY [🔒 Secret]` with their value hidden.
+- Variables with `# bahotasu-block` inline comment flag are displayed as `KEY [🚫 Blocked]` and cannot be edited or deleted.
+- Variables with `# bahotasu-hide` inline comment flag are replaced with a hidden placeholder (no data leaves the backend).
 
 #### FR-ENV-USER-03 — Env Validation and Serialization
 
 - Variable names must match `^[A-Za-z_][A-Za-z0-9_]*$`.
 - Comments cannot contain `=` or newlines.
 - Read-only separator comments are preserved and displayed as comments, but cannot be edited or deleted through the editor.
-- Values cannot contain newlines.
+- Values may contain newlines for multiline values (e.g., SSH keys, certificates).
+- The editor UI shows an `<input>` for single-line values and a `<textarea>` for existing multiline values.
+- Multiline values appear in the editor rows as the first line followed by `...` with a "multiline" badge.
 - Duplicate enabled variable names are rejected; disabled alternatives may share a name with an enabled variable.
+- Inline bahotasu flags (`bahotasu-secret`, `bahotasu-block`, `bahotasu-hide`) are parsed from the inline comment after a variable's value. These flags are preserved through parse-serialize round-trips.
+- The editor modal includes a `[ ] 🔒 Make this variable Secret` checkbox that toggles the `bahotasu-secret` flag.
+- Comment text validation rejects entries containing `bahotasu-secret`, `bahotasu-block`, or `bahotasu-hide`.
+- Blocked and hidden flags cannot be set through the editor; they are added by manually editing the file.
 - The backend serializes canonical env text:
   - Integer and float literals are written without quotes.
   - All other values are written as double-quoted strings with escaped quotes/backslashes.
+  - Multiline values are written as double-quoted strings with literal newlines inside the quotes (valid bash syntax).
   - Disabled variables are written as `#KEY=value`.
 
 #### FR-ENV-USER-04 — Save Contract
@@ -888,6 +901,10 @@ Internal API routes exist under `/api` (referenced in `/src/routes/api/`) for fu
 | NFR-ENV-02 | Security | Environment history stores redacted values only; plaintext secret values are not duplicated into SQLite. |
 | NFR-ENV-03 | Reliability | Environment saves compare a SHA-256 base hash before writing to prevent overwriting concurrent edits. |
 | NFR-ENV-04 | Reliability | Environment writes use a temp file and rename where possible; write errors are surfaced to the user. |
+| NFR-ENV-05 | Resilience | Missing local/remote environment files are handled gracefully: the editor loads as empty and saves create the file. |
+| NFR-ENV-06 | Compatibility | Variable values support multiline content inside double-quoted strings (e.g., SSH keys, certificates). |
+| NFR-ENV-07 | Security | Inline bahotasu flags (`# bahotasu-secret`, `# bahotasu-block`, `# bahotasu-hide`) are parsed from inline comments without leaking quoted values. Secret values never leave the backend when unmodified. |
+| NFR-ENV-08 | Integrity | Blocked lines are enforced server-side during save: any modifications to blocked lines are silently restored from the current file. Hidden lines are replaced with structural placeholders — no data leaves the backend. |
 
 ---
 

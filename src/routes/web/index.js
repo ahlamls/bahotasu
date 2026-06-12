@@ -32,6 +32,7 @@ import {
   buildRedactedChanges,
   assertReadonlyCommentsUnchanged,
   hashEnvText,
+  mergeSubmittedLines,
   parseEnvText,
   readEnvironmentFileText,
   serializeEnvLines,
@@ -1577,7 +1578,18 @@ router.get(
     try {
       const rawText = await readEnvironmentFileText(envFile);
       baseHash = hashEnvText(rawText);
-      lines = parseEnvText(rawText);
+      const allLines = parseEnvText(rawText);
+
+      // Filter hidden lines → placeholders, strip secret values
+      lines = allLines.map((line) => {
+        if (line.isHidden) {
+          return { type: "hidden_placeholder", _id: line._id };
+        }
+        if (line.isSecret) {
+          return { ...line, value: "" };
+        }
+        return line;
+      });
     } catch (err) {
       loadError = `Failed to load environment file: ${err.message}`;
     }
@@ -1659,7 +1671,9 @@ router.post(
     let nextText = "";
     let nextLines = [];
     try {
-      nextText = serializeEnvLines(body.lines);
+      // Merge submitted lines with original file data, preserving hidden/blocked/secret
+      const mergedLines = mergeSubmittedLines(body.lines, previousLines);
+      nextText = serializeEnvLines(mergedLines);
       nextLines = parseEnvText(nextText);
       assertReadonlyCommentsUnchanged(previousLines, nextLines);
     } catch (err) {

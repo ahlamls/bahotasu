@@ -53,6 +53,87 @@ const stripInlineComment = (value) => {
 };
 
 /**
+ * Splits a raw value portion (everything after the first =) into the value part
+ * and the inline comment part. Quote-aware: # inside double/single quotes is
+ * not treated as a comment marker. This prevents bahotasu flags inside quoted
+ * values from being detected.
+ * Added by Claude Sonnet 4 / 2026-06-12.
+ */
+const splitInlineComment = (rawValue) => {
+  let inDoubleQuote = false;
+  let inSingleQuote = false;
+  let escaped = false;
+
+  for (let i = 0; i < rawValue.length; i++) {
+    const ch = rawValue[i];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (inDoubleQuote) {
+      if (ch === '"') inDoubleQuote = false;
+      continue;
+    }
+    if (inSingleQuote) {
+      if (ch === "'") inSingleQuote = false;
+      continue;
+    }
+    if (ch === '"') {
+      inDoubleQuote = true;
+      continue;
+    }
+    if (ch === "'") {
+      inSingleQuote = true;
+      continue;
+    }
+    if (ch === "#" && (i === 0 || /\s/.test(rawValue[i - 1]))) {
+      return {
+        valuePart: rawValue.slice(0, i),
+        commentPart: rawValue.slice(i + 1).trimStart(),
+      };
+    }
+  }
+
+  return { valuePart: rawValue, commentPart: "" };
+};
+
+/**
+ * Detects bahotasu flags (secret, block, hide) in an inline comment string.
+ * Uses word-boundary regex to prevent partial matches (e.g. "my-bahotasu-secret").
+ * Returns the isSecret/isBlocked/isHidden booleans and the cleaned display comment.
+ * Added by Claude Sonnet 4 / 2026-06-12.
+ */
+const BAHOTASU_FLAG_PATTERNS = [
+  { key: "isSecret", pattern: /\bbahotasu-secret\b/ },
+  { key: "isBlocked", pattern: /\bbahotasu-block\b/ },
+  { key: "isHidden", pattern: /\bbahotasu-hide\b/ },
+];
+
+const extractFlags = (commentPart) => {
+  const result = { isSecret: false, isBlocked: false, isHidden: false };
+  if (!commentPart) return { ...result, inlineComment: "" };
+
+  const trimmed = String(commentPart).trim();
+  for (const { key, pattern } of BAHOTASU_FLAG_PATTERNS) {
+    if (pattern.test(trimmed)) {
+      result[key] = true;
+    }
+  }
+
+  let displayComment = trimmed;
+  for (const { pattern } of BAHOTASU_FLAG_PATTERNS) {
+    displayComment = displayComment.replace(pattern, "").trim();
+  }
+
+  return { ...result, inlineComment: displayComment };
+};
+
+/**
  * Hashes raw file content so saves can reject stale browser edits.
  */
 export const hashEnvText = (text) =>
@@ -70,7 +151,40 @@ const splitEnvLines = (text) => {
   return lines;
 };
 
-const countEquals = (value) => (String(value).match(/=/g) || []).length;
+/**
+ * Splits env text into logical lines, treating newlines inside double-quoted
+ * values as part of the same logical line (multiline value support).
+ * Uses a simple state machine tracking double-quote open/close.
+ * Added by Claude Sonnet 4 / 2026-06-12.
+ */
+const splitIntoLogicalLines = (text) => {
+  const normalized = normalizeLineEndings(text || "");
+  if (normalized === "") return [];
+  const lines = [];
+  let current = "";
+  let inDoubleQuote = false;
+  for (const ch of normalized) {
+    if (ch === '"') inDoubleQuote = !inDoubleQuote;
+    if (ch === "\n" && !inDoubleQuote) {
+      lines.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  if (current !== "") lines.push(current);
+  return lines;
+};
+
+const countUnquotedEquals = (value) => {
+  let count = 0;
+  let inDoubleQuote = false;
+  for (const ch of String(value)) {
+    if (ch === '"') inDoubleQuote = !inDoubleQuote;
+    if (ch === "=" && !inDoubleQuote) count += 1;
+  }
+  return count;
+};
 
 /**
  * Parses a supported variable value from an existing env line.
@@ -93,7 +207,13 @@ const parseValue = (rawValue, lineNumber) => {
 
 /**
  * Parses a single env line into the strict editable subset used by the UI.
+ * Supports bahotasu flags in inline comments: bahotasu-secret, bahotasu-block, bahotasu-hide.
+ * Added by Claude Sonnet 4 / 2026-06-12.
  */
+let lineIdCounter = 0;
+
+const generateLineId = () => `_l${(lineIdCounter += 1)}`;
+
 const parseEnvLine = (line, index) => {
   const lineNumber = index + 1;
   const trimmedLine = line.trim();
@@ -102,26 +222,28 @@ const parseEnvLine = (line, index) => {
   }
 
   if (trimmedLine.startsWith("#")) {
-    // Existing files may indent comments or disabled variables; the editor
-    // normalizes them back to leading "#" when saving.
     const body = trimmedLine.slice(1);
     if (body.includes("=")) {
-      if (countEquals(stripInlineComment(body)) > 1) {
+      // Use the value-only portion for equals count check
+      const { valuePart: bodyValuePart } = splitInlineComment(body);
+      if (countUnquotedEquals(bodyValuePart) > 1) {
         return { type: "readonly_comment", text: body };
       }
       const separatorIndex = body.indexOf("=");
-      // Existing env files may contain "KEY = value"; normalize it on parse so
-      // saving rewrites the file to canonical "KEY=value" formatting.
       const name = body.slice(0, separatorIndex).trim();
       const rawValue = body.slice(separatorIndex + 1);
       if (!ENV_VARIABLE_NAME_PATTERN.test(name)) {
         throw new Error(`Line ${lineNumber}: disabled variable name is invalid.`);
       }
+      const { valuePart, commentPart } = splitInlineComment(rawValue);
+      const flags = extractFlags(commentPart);
       return {
         type: "variable",
         name,
-        value: parseValue(rawValue, lineNumber),
+        value: parseValue(valuePart.trim(), lineNumber),
         enabled: false,
+        ...flags,
+        _id: generateLineId(),
       };
     }
     return { type: "comment", text: body };
@@ -131,24 +253,27 @@ const parseEnvLine = (line, index) => {
     throw new Error(`Line ${lineNumber}: non-comment lines must use KEY=value.`);
   }
 
-  if (countEquals(stripInlineComment(trimmedLine)) > 1) {
-    throw new Error(`Line ${lineNumber}: variable lines cannot contain more than one "=".`);
-  }
-
   const separatorIndex = trimmedLine.indexOf("=");
-  // Accept whitespace around "=" in existing files, then serialize without it.
-  // Updated by OpenAI Codex GPT-5 / 2026-05-20 for tolerant env-file loading.
   const name = trimmedLine.slice(0, separatorIndex).trim();
   const rawValue = trimmedLine.slice(separatorIndex + 1);
   if (!ENV_VARIABLE_NAME_PATTERN.test(name)) {
     throw new Error(`Line ${lineNumber}: variable name is invalid.`);
   }
 
+  const { valuePart, commentPart } = splitInlineComment(rawValue);
+  // Check for extra = in the value portion only
+  if (countUnquotedEquals(valuePart) > 0) {
+    throw new Error(`Line ${lineNumber}: variable lines cannot contain more than one "=".`);
+  }
+  const flags = extractFlags(commentPart);
+
   return {
     type: "variable",
     name,
-    value: parseValue(rawValue, lineNumber),
+    value: parseValue(valuePart.trim(), lineNumber),
     enabled: true,
+    ...flags,
+    _id: generateLineId(),
   };
 };
 
@@ -156,7 +281,8 @@ const parseEnvLine = (line, index) => {
  * Parses existing env text and rejects unsupported syntax before editing starts.
  */
 export const parseEnvText = (text) => {
-  const lines = splitEnvLines(text).map(parseEnvLine);
+  lineIdCounter = 0;
+  const lines = splitIntoLogicalLines(text).map(parseEnvLine);
   validateEnvLines(lines);
   return lines;
 };
@@ -196,8 +322,12 @@ export const validateEnvLines = (lines) => {
       if (!ENV_VARIABLE_NAME_PATTERN.test(name)) {
         throw new Error(`Line ${lineNumber}: variable name is invalid.`);
       }
-      if (value.includes("\n") || value.includes("\r")) {
-        throw new Error(`Line ${lineNumber}: variable values cannot contain new lines.`);
+      // Safeguard: prevent users from entering bahotasu flags into the comment field
+      if (line.inlineComment) {
+        const commentStr = String(line.inlineComment);
+        if (/\bbahotasu-secret\b|\bbahotasu-block\b|\bbahotasu-hide\b/.test(commentStr)) {
+          throw new Error(`Line ${lineNumber}: inline comment cannot contain system flags.`);
+        }
       }
       if (line.enabled !== false && enabledNames.has(name)) {
         throw new Error(`Line ${lineNumber}: duplicate enabled variable "${name}" is not allowed.`);
@@ -227,7 +357,14 @@ const serializeLine = (line) => {
   if (line.type === "readonly_comment") return `#${line.text || ""}`;
   if (line.type === "comment") return `#${line.text || ""}`;
   const prefix = line.enabled === false ? "#" : "";
-  return `${prefix}${line.name}=${serializeValue(line.value)}`;
+  let result = `${prefix}${line.name}=${serializeValue(line.value)}`;
+  if (line.inlineComment && line.inlineComment.trim()) {
+    result += ` # ${line.inlineComment.trim()}`;
+  }
+  if (line.isSecret) result += " # bahotasu-secret";
+  if (line.isBlocked) result += " # bahotasu-block";
+  if (line.isHidden) result += " # bahotasu-hide";
+  return result;
 };
 
 /**
@@ -448,13 +585,25 @@ const remoteExec = (client, command) =>
 const readRemoteFile = async (server, filePath) =>
   withRemoteClient(server, async (client) => {
     const sftp = await openSftp(client);
-    return sftpReadFile(sftp, filePath);
+    try {
+      return await sftpReadFile(sftp, filePath);
+    } catch (err) {
+      if (err.message.includes("No such file")) return "";
+      throw err;
+    }
   });
 
 const writeRemoteFileAtomic = async (server, filePath, text) =>
   withRemoteClient(server, async (client) => {
     const sftp = await openSftp(client);
-    const stats = await sftpStat(sftp, filePath);
+    let permissions = null;
+    try {
+      const stats = await sftpStat(sftp, filePath);
+      permissions = stats.permissions;
+    } catch (_) {
+      // File may not exist yet; create it without preserving permissions.
+    }
+
     const tempPath = posixPath.join(
       posixPath.dirname(filePath),
       `.${posixPath.basename(filePath)}.bahotasu-${process.pid}-${Date.now()}.tmp`,
@@ -462,8 +611,8 @@ const writeRemoteFileAtomic = async (server, filePath, text) =>
 
     try {
       await sftpWriteFile(sftp, tempPath, text);
-      if (stats.permissions) {
-        await sftpChmod(sftp, tempPath, stats.permissions & 0o777);
+      if (permissions) {
+        await sftpChmod(sftp, tempPath, permissions & 0o777);
       }
       await remoteExec(client, `mv -f -- ${shellQuote(tempPath)} ${shellQuote(filePath)}`);
     } catch (err) {
@@ -472,10 +621,24 @@ const writeRemoteFileAtomic = async (server, filePath, text) =>
     }
   });
 
-const readLocalFile = (filePath) => fs.readFile(filePath, "utf8");
+const readLocalFile = async (filePath) => {
+  try {
+    return await fs.readFile(filePath, "utf8");
+  } catch (err) {
+    if (err.code === "ENOENT") return "";
+    throw err;
+  }
+};
 
 const writeLocalFileAtomic = async (filePath, text) => {
-  const stats = await fs.stat(filePath);
+  let fileMode = 0o644;
+  try {
+    const stats = await fs.stat(filePath);
+    fileMode = stats.mode & 0o777;
+  } catch (err) {
+    if (err.code !== "ENOENT") throw err;
+  }
+
   const directory = path.dirname(filePath);
   const tempPath = path.join(
     directory,
@@ -483,13 +646,61 @@ const writeLocalFileAtomic = async (filePath, text) => {
   );
 
   try {
-    await fs.writeFile(tempPath, text, { encoding: "utf8", mode: stats.mode & 0o777 });
-    await fs.chmod(tempPath, stats.mode & 0o777);
+    await fs.writeFile(tempPath, text, { encoding: "utf8", mode: fileMode });
+    await fs.chmod(tempPath, fileMode);
     await fs.rename(tempPath, filePath);
   } catch (err) {
     await fs.unlink(tempPath).catch(() => {});
     throw err;
   }
+};
+
+/**
+ * Merges frontend-submitted lines with the original file's parsed lines.
+ * Handles hidden placeholders, blocked lines, and secret unmodified values.
+ * Added by Claude Sonnet 4 / 2026-06-12.
+ */
+export const mergeSubmittedLines = (submittedLines, previousLines) => {
+  const prevById = {};
+  for (const prev of previousLines) {
+    if (prev._id) prevById[prev._id] = prev;
+  }
+
+  const merged = [];
+
+  for (const submitted of submittedLines) {
+    // Hidden placeholders: restore original data from previous file read
+    if (submitted.type === "hidden_placeholder" && submitted._id && prevById[submitted._id]) {
+      merged.push({ ...prevById[submitted._id] });
+      continue;
+    }
+
+    const original = submitted._id ? prevById[submitted._id] : null;
+
+    // Blocked lines: always restore from original (defense-in-depth)
+    if (original && (original.isBlocked || submitted.isBlocked)) {
+      merged.push({ ...original });
+      continue;
+    }
+
+    // Secret lines with unmodified value: restore original value
+    if (submitted.isSecret && submitted._valueModified !== true && original) {
+      merged.push({ ...submitted, value: original.value });
+      continue;
+    }
+
+    merged.push(submitted);
+  }
+
+  // Append any hidden/blocked lines from original that are missing in submitted
+  const submittedIds = new Set(submittedLines.map((l) => l._id).filter(Boolean));
+  for (const prev of previousLines) {
+    if ((prev.isHidden || prev.isBlocked) && prev._id && !submittedIds.has(prev._id)) {
+      merged.push({ ...prev });
+    }
+  }
+
+  return merged;
 };
 
 /**

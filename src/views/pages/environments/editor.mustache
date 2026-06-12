@@ -59,10 +59,16 @@
           <div>
             <label class="form-label small text-uppercase text-secondary" for="variableValueInput">Value</label>
             <input type="text" id="variableValueInput" class="form-control" autocomplete="off" />
+            <textarea id="variableValueTextarea" class="form-control font-monospace d-none" rows="4" autocomplete="off"></textarea>
           </div>
           <div class="form-check">
             <input class="form-check-input" type="checkbox" id="variableEnabledInput" checked />
             <label class="form-check-label" for="variableEnabledInput">Enabled</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="variableIsSecretInput" />
+            <label class="form-check-label" for="variableIsSecretInput">🔒 Make this variable Secret</label>
+            <div class="small text-muted" id="secretNote">When secret, the value is hidden from view.</div>
           </div>
         </div>
         <div id="commentFields" class="d-grid gap-3 d-none">
@@ -240,7 +246,10 @@
     const commentFields = document.getElementById("commentFields");
     const variableNameInput = document.getElementById("variableNameInput");
     const variableValueInput = document.getElementById("variableValueInput");
+    const variableValueTextarea = document.getElementById("variableValueTextarea");
     const variableEnabledInput = document.getElementById("variableEnabledInput");
+    const variableIsSecretInput = document.getElementById("variableIsSecretInput");
+    const secretNote = document.getElementById("secretNote");
     const commentTextInput = document.getElementById("commentTextInput");
     const lineModalLabel = document.getElementById("lineModalLabel");
     const lineModalError = document.getElementById("lineModalError");
@@ -322,7 +331,6 @@
         }
         if (line.type === "variable") {
           if (!variablePattern.test(line.name || "")) return `Line ${lineNumber}: variable name is invalid.`;
-          if (String(line.value ?? "").includes("\n")) return `Line ${lineNumber}: values cannot contain new lines.`;
           if (line.enabled !== false && enabledNames.has(line.name)) {
             return `Line ${lineNumber}: duplicate enabled variable "${line.name}" is not allowed.`;
           }
@@ -368,20 +376,39 @@
         const title = document.createElement("div");
         title.className = "text-break";
 
+        // Hidden placeholders: skip entirely (no rendering)
+        if (line.type === "hidden_placeholder") continue;
+
         if (line.type === "comment" || line.type === "readonly_comment") {
           title.classList.add("fw-semibold");
           title.textContent = "\u{1F4AC} " + (line.text || "Comment");
         } else if (line.type === "variable") {
-          // Keep only the env key bold so rows read as "KEY - value" instead of bolding secrets/values.
-          // Updated by OpenAI Codex GPT-5 / 2026-05-20 for Environment Variables row readability.
           title.appendChild(document.createTextNode(line.enabled === false ? "\u274C " : ""));
           const nameEl = document.createElement("strong");
           nameEl.textContent = line.name;
           title.appendChild(nameEl);
-          title.appendChild(document.createTextNode(" - " + String(line.value ?? "")));
+
+          if (line.isSecret && line.isBlocked) {
+            title.appendChild(document.createTextNode(" \uD83D\uDD12 Secret \uD83D\uDEAB Blocked"));
+          } else if (line.isSecret) {
+            title.appendChild(document.createTextNode(" \uD83D\uDD12 Secret"));
+          } else if (line.isBlocked) {
+            title.appendChild(document.createTextNode(" \uD83D\uDEAB Blocked"));
+          } else {
+            const displayValue = String(line.value ?? "");
+            const isMultiline = displayValue.includes("\n");
+            const firstLine = isMultiline
+              ? displayValue.split("\n")[0] + "..."
+              : displayValue;
+            title.appendChild(document.createTextNode(" - " + firstLine));
+            if (isMultiline) {
+              const badge = document.createElement("span");
+              badge.className = "badge bg-secondary ms-2";
+              badge.textContent = "multiline";
+              title.appendChild(badge);
+            }
+          }
         } else {
-          // Blank separators are intentionally muted so they read as spacing, not editable content.
-          // Updated by OpenAI Codex GPT-5 / 2026-05-20 for Environment Variables row readability.
           title.classList.add("text-muted");
           title.textContent = "Blank line";
         }
@@ -399,11 +426,23 @@
           status.textContent = "disabled";
           body.appendChild(status);
         }
+        if (line.type === "variable" && line.isSecret) {
+          const status = document.createElement("div");
+          status.className = "small text-warning";
+          status.textContent = "secret";
+          body.appendChild(status);
+        }
+        if (line.type === "variable" && line.isBlocked) {
+          const status = document.createElement("div");
+          status.className = "small text-danger";
+          status.textContent = "blocked";
+          body.appendChild(status);
+        }
 
         const actions = document.createElement("div");
         actions.className = "d-flex gap-2 flex-shrink-0";
 
-        if (line.type !== "blank" && line.type !== "readonly_comment") {
+        if (line.type !== "blank" && line.type !== "readonly_comment" && !line.isBlocked) {
           const editBtn = document.createElement("button");
           editBtn.type = "button";
           editBtn.className = "btn btn-outline-secondary btn-sm";
@@ -412,7 +451,7 @@
           actions.appendChild(editBtn);
         }
 
-        if (line.type !== "readonly_comment") {
+        if (line.type !== "readonly_comment" && !line.isBlocked) {
           const deleteBtn = document.createElement("button");
           deleteBtn.type = "button";
           deleteBtn.className = "btn btn-outline-danger btn-sm";
@@ -442,13 +481,46 @@
       const existing = index === null ? null : lines[index];
       if (type === "variable") {
         variableNameInput.value = existing?.name || "";
-        variableValueInput.value = existing?.value || "";
         variableEnabledInput.checked = existing ? existing.enabled !== false : true;
+        variableIsSecretInput.checked = existing?.isSecret === true;
+        secretNote.classList.toggle("d-none", !existing?.isSecret);
+        const isSecretEditing = index !== null && existing?.isSecret === true;
+
+        if (isSecretEditing) {
+          // Secret line: value field is empty, user types to modify
+          variableValueInput.classList.add("d-none");
+          variableValueTextarea.classList.remove("d-none");
+          variableValueInput.value = "";
+          variableValueTextarea.value = "";
+          variableValueTextarea.placeholder = "Value hidden. Enter new value to change, or leave empty to keep current.";
+          if (variableValueTextarea._valueModified !== undefined) {
+            delete variableValueTextarea._valueModified;
+          }
+          variableValueInput._valueModified = false;
+          variableValueTextarea._valueModified = false;
+        } else {
+          const value = existing?.value || "";
+          const isMultiline = index !== null && value.includes("\n");
+          variableValueInput.classList.toggle("d-none", isMultiline);
+          variableValueTextarea.classList.toggle("d-none", !isMultiline);
+          variableValueInput.value = isMultiline ? "" : value;
+          variableValueTextarea.value = isMultiline ? value : "";
+          variableValueTextarea.placeholder = "";
+          variableValueInput._valueModified = false;
+          variableValueTextarea._valueModified = false;
+        }
       } else {
         commentTextInput.value = existing?.text || "";
       }
       lineModal.show();
     };
+
+    // Track value modification for secret lines
+    const trackValueModified = (el) => {
+      el._valueModified = true;
+    };
+    variableValueInput.addEventListener("input", () => trackValueModified(variableValueInput));
+    variableValueTextarea.addEventListener("input", () => trackValueModified(variableValueTextarea));
 
     document.querySelectorAll(".env-add-variable").forEach((button) => {
       button.addEventListener("click", () => openLineModal("variable"));
@@ -461,18 +533,39 @@
       let nextLine;
       if (modalMode === "variable") {
         const name = variableNameInput.value.trim();
-        const value = variableValueInput.value;
+        const activeInput = variableValueInput.classList.contains("d-none")
+          ? variableValueTextarea
+          : variableValueInput;
+        const value = activeInput.value;
+        const valueModified = activeInput._valueModified === true;
+
         if (!variablePattern.test(name)) {
           lineModalError.textContent = "Variable name must start with a letter or underscore and contain only letters, numbers, or underscores.";
           lineModalError.classList.remove("d-none");
           return;
         }
-        if (value.includes("\n")) {
-          lineModalError.textContent = "Variable values cannot contain new lines.";
+
+        const isSecret = variableIsSecretInput.checked;
+        const existing = editingIndex !== null ? lines[editingIndex] : null;
+        const wasSecret = existing?.isSecret === true;
+
+        // Enforce value requirement when unmarking as secret
+        if (wasSecret && !isSecret && (!value || !value.trim())) {
+          lineModalError.textContent = "You must enter a new value when unmarking a variable as Secret.";
           lineModalError.classList.remove("d-none");
           return;
         }
-        nextLine = { type: "variable", name, value, enabled: variableEnabledInput.checked };
+
+        nextLine = {
+          type: "variable",
+          name,
+          value: wasSecret && !isSecret ? value : (valueModified ? value : (existing?.value ?? value)),
+          enabled: variableEnabledInput.checked,
+          isSecret,
+          _valueModified: valueModified,
+          _id: existing?._id || null,
+          inlineComment: existing?.inlineComment || "",
+        };
       } else {
         const text = commentTextInput.value.trim();
         if (!text) {
@@ -482,6 +575,11 @@
         }
         if (text.includes("=")) {
           lineModalError.textContent = "Comments cannot contain equals signs.";
+          lineModalError.classList.remove("d-none");
+          return;
+        }
+        if (/\bbahotasu-secret\b|\bbahotasu-block\b|\bbahotasu-hide\b/.test(text)) {
+          lineModalError.textContent = "Comments cannot contain system flags.";
           lineModalError.classList.remove("d-none");
           return;
         }
