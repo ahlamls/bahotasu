@@ -377,7 +377,7 @@
         title.className = "text-break";
 
         // Hidden placeholders: skip entirely (no rendering)
-        if (line.type === "hidden_placeholder") continue;
+        if (line.type === "hidden_placeholder") return;
 
         if (line.type === "comment" || line.type === "readonly_comment") {
           title.classList.add("fw-semibold");
