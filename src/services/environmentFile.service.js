@@ -426,6 +426,10 @@ const normalizeForCompare = (line) => {
       name: line.name,
       value: String(line.value ?? ""),
       enabled: line.enabled !== false,
+      isSecret: line.isSecret === true,
+      isBlocked: line.isBlocked === true,
+      isHidden: line.isHidden === true,
+      inlineComment: line.inlineComment || "",
     };
   }
   if (line.type === "comment" || line.type === "readonly_comment") {
