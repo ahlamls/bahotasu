@@ -278,13 +278,32 @@ const parseEnvLine = (line, index) => {
 };
 
 /**
+ * Removes duplicate enabled variable lines, keeping the LAST occurrence only.
+ * This matches shell behavior where the last assignment overwrites earlier ones.
+ * Added by Claude Sonnet 4 / 2026-06-12.
+ */
+const deduplicateEnabledVariables = (lines) => {
+  const lastIndex = {};
+  lines.forEach((line, i) => {
+    if (line.type === "variable" && line.enabled !== false) {
+      lastIndex[line.name] = i;
+    }
+  });
+  return lines.filter((line, i) => {
+    if (line.type !== "variable" || line.enabled === false) return true;
+    return lastIndex[line.name] === i;
+  });
+};
+
+/**
  * Parses existing env text and rejects unsupported syntax before editing starts.
  */
 export const parseEnvText = (text) => {
   lineIdCounter = 0;
   const lines = splitIntoLogicalLines(text).map(parseEnvLine);
-  validateEnvLines(lines);
-  return lines;
+  const deduped = deduplicateEnabledVariables(lines);
+  validateEnvLines(deduped);
+  return deduped;
 };
 
 /**
@@ -369,11 +388,13 @@ const serializeLine = (line) => {
 
 /**
  * Serializes validated structured lines into canonical .env text.
+ * Automatically deduplicates enabled variables (last occurrence wins).
  */
 export const serializeEnvLines = (lines) => {
-  validateEnvLines(lines);
-  if (lines.length === 0) return "";
-  return `${lines.map(serializeLine).join("\n")}\n`;
+  const deduped = deduplicateEnabledVariables(lines);
+  validateEnvLines(deduped);
+  if (deduped.length === 0) return "";
+  return `${deduped.map(serializeLine).join("\n")}\n`;
 };
 
 const lineLabel = (line) => {
